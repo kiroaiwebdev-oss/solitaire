@@ -216,9 +216,10 @@ export class Screens {
 
     switch (this.activeScreen) {
       case 'mainMenu': {
-        const startY = h * 0.35;
+        const startY = h * 0.32;
         const items = [
           ['New Game', 'modeSelect'],
+          ['Daily Challenge', 'dailyChallenge'],
           ['Continue', 'continue'],
           ['Settings', 'settings'],
           ['Statistics', 'statistics']
@@ -253,7 +254,6 @@ export class Screens {
         soundBtn.x = cx; soundBtn.y = startY; soundBtn.width = btnW; soundBtn.height = btnH;
         this.buttons.push(soundBtn);
 
-        const themeKeys = Object.keys(THEMES).filter(k => THEMES[k].unlocked !== false);
         const currentTheme = THEMES[this.settings.cardTheme] || THEMES[DEFAULT_THEME];
         const themeBtn = new ScreenButton(`Theme: ${currentTheme.name}`, 'cycleTheme');
         themeBtn.x = cx; themeBtn.y = startY + (btnH + gap); themeBtn.width = btnW; themeBtn.height = btnH;
@@ -316,15 +316,15 @@ export class Screens {
     ctx.font = `bold ${titleSize}px system-ui, sans-serif`;
     ctx.fillStyle = '#ffd700';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('Klondike Solitaire', w / 2, h * 0.18);
+    ctx.fillText('Klondike Solitaire', w / 2, h * 0.14);
     // Subtitle
     ctx.font = `${titleSize * 0.4}px system-ui, sans-serif`;
     ctx.fillStyle = '#cccccc';
-    ctx.fillText('Classic Card Game', w / 2, h * 0.26);
+    ctx.fillText('Classic Card Game', w / 2, h * 0.22);
     // Suit decorations
     ctx.font = `${titleSize * 0.8}px system-ui, sans-serif`;
     ctx.fillStyle = 'rgba(255,215,0,0.3)';
-    ctx.fillText('\u2660 \u2665 \u2666 \u2663', w / 2, h * 0.88);
+    ctx.fillText('\u2660 \u2665 \u2666 \u2663', w / 2, h * 0.9);
   }
 
   _renderModeSelect(ctx, w, h) {
@@ -345,30 +345,36 @@ export class Screens {
 
   _renderStatistics(ctx, w, h) {
     const titleSize = Math.min(w * 0.07, 36);
-    const statSize = Math.min(w * 0.04, 18);
+    const statSize = Math.min(w * 0.035, 16);
     ctx.font = `bold ${titleSize}px system-ui, sans-serif`;
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('Statistics', w / 2, h * 0.15);
+    ctx.fillText('Statistics', w / 2, h * 0.12);
 
     const s = this.stats;
     const winPct = s.played > 0 ? Math.round((s.won / s.played) * 100) : 0;
     const bestTimeStr = s.bestTime !== null ?
       `${Math.floor(s.bestTime / 60)}:${Math.floor(s.bestTime % 60).toString().padStart(2, '0')}` : '--:--';
+    const avgTimeStr = s.averageTime !== null ?
+      `${Math.floor(s.averageTime / 60)}:${Math.floor(s.averageTime % 60).toString().padStart(2, '0')}` : '--:--';
 
     const lines = [
       `Games Played: ${s.played}`,
       `Games Won: ${s.won}`,
       `Win Rate: ${winPct}%`,
       `Best Time: ${bestTimeStr}`,
+      `Average Time: ${avgTimeStr}`,
       `Current Streak: ${s.currentStreak}`,
-      `Longest Streak: ${s.longestStreak}`
+      `Longest Streak: ${s.longestStreak}`,
+      `Total Moves: ${s.totalMoves || 0}`,
+      `Daily Streak: ${s.dailyStreak || 0}`,
+      `Daily Challenges: ${s.dailyChallengesCompleted || 0}`
     ];
 
     ctx.font = `${statSize}px system-ui, sans-serif`;
     ctx.fillStyle = '#dddddd';
     lines.forEach((line, i) => {
-      ctx.fillText(line, w / 2, h * 0.3 + i * (statSize + 12));
+      ctx.fillText(line, w / 2, h * 0.24 + i * (statSize + 8));
     });
   }
 

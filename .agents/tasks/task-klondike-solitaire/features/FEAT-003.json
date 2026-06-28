@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "feat",
   "description": "Progression systems, daily challenges, achievements, save/load, and unlockable themes. This adds the meta-game layer with persistence, daily challenge seeds/streaks, XP/levels, achievement tracking, and card back theme unlocks.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Create src/config/themes.js - define 8+ card back themes: Classic Green (default/free), Royal Blue (free), Crimson (level 3), Gold Pattern (level 5), Night Sky (level 8), Ocean Wave (level 10), Abstract Art (win 10 games), Daily Champion (7-day streak). Each theme defined as draw instructions (colors, patterns, gradients) for programmatic canvas rendering.",
     "Create src/config/achievements.js - achievement definitions: First Win, Speed Demon (win under 3 min), Streak Master (7-day streak), Perfect Game (no undos), Century (100 games played), Foundation Builder (50 wins), Daily Devotee (30 daily challenges), Card Shark (win 5 in a row), Minimalist (win with fewest moves), Hard Mode Hero (win on Hard)",

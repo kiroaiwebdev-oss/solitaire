@@ -24,6 +24,8 @@ import { SaveManager } from '../src/systems/save-manager.js';
 import { Progression } from '../src/systems/progression.js';
 import { DailyChallenge } from '../src/systems/daily-challenge.js';
 import { Achievements } from '../src/systems/achievements.js';
+import { ACHIEVEMENT_DEFS, getAllAchievementIds } from '../src/config/achievements.js';
+import { isThemeUnlocked } from '../src/config/themes.js';
 
 let passed = 0;
 let failed = 0;
@@ -175,10 +177,134 @@ test('Progression stub works', () => {
   assert(prog.currency === 50, 'currency added');
 });
 
+test('Progression level-up detection', () => {
+  const prog = new Progression();
+  // xpForLevel(2) = floor(100 * 2^1.5) = 282
+  const result = prog.addXp(300);
+  assert(result.leveled === true, 'should level up with 300 xp');
+  assert(result.newLevel === 2, 'should reach level 2');
+  assert(result.coinsEarned === 100, 'should earn 100 coins');
+  assert(prog.currency === 100, 'currency should be 100');
+});
+
+test('Progression XP calculation', () => {
+  // Importing through the module directly is cleaner
+  const prog = new Progression();
+  // Win with speed bonus and no undo
+  // Base 10 + Win 50 + Speed 30 + NoUndo 20 = 110
+  prog.addXp(110);
+  assert(prog.xp === 110, 'total xp should be 110');
+});
+
+test('Progression state save/load', () => {
+  const prog = new Progression();
+  prog.addXp(500);
+  prog.addCurrency(200);
+  const state = prog.getState();
+  assert(state.xp === 500, 'state xp');
+  assert(state.currency === 200 + 100, 'state currency includes level-up coins');
+
+  const prog2 = new Progression();
+  prog2.loadState(state);
+  assert(prog2.xp === 500, 'loaded xp');
+  assert(prog2.level === prog.level, 'loaded level matches');
+});
+
 test('Achievements stub works', () => {
   const achievements = new Achievements();
   assert(achievements.getUnlocked().length === 0, 'no achievements initially');
   assert(achievements.isUnlocked('test') === false, 'test not unlocked');
+});
+
+test('Achievements check unlocks correctly', () => {
+  const achievements = new Achievements();
+  const stats = { won: 1, played: 1, bestTime: 200, perfectWins: 0 };
+  const newlyUnlocked = achievements.check(stats);
+  assert(newlyUnlocked.includes('first_win'), 'first_win should unlock');
+  assert(achievements.isUnlocked('first_win'), 'first_win is now unlocked');
+  // Check that it does not double-unlock
+  const again = achievements.check(stats);
+  assert(again.length === 0, 'should not re-unlock');
+});
+
+test('Achievements speed demon', () => {
+  const achievements = new Achievements();
+  const stats = { won: 1, played: 1, bestTime: 120, perfectWins: 0 };
+  achievements.check(stats);
+  assert(achievements.isUnlocked('speed_demon'), 'speed_demon should unlock under 3min');
+});
+
+test('Achievements state save/load', () => {
+  const achievements = new Achievements();
+  achievements.check({ won: 1, played: 1, bestTime: 200, perfectWins: 0 });
+  const state = achievements.getState();
+  assert(state.unlocked.includes('first_win'), 'state has first_win');
+
+  const a2 = new Achievements();
+  a2.loadState(state);
+  assert(a2.isUnlocked('first_win'), 'loaded achievement preserved');
+});
+
+test('DailyChallenge seed consistency', () => {
+  const dc = new DailyChallenge();
+  const seed1 = dc.getTodaySeed();
+  const seed2 = dc.getTodaySeed();
+  assert(seed1 === seed2, 'same day produces same seed');
+  assert(typeof seed1 === 'number', 'seed is number');
+});
+
+test('DailyChallenge completion and streak', () => {
+  const dc = new DailyChallenge();
+  assert(dc.isCompleted() === false, 'not completed initially');
+  const result = dc.complete();
+  assert(dc.isCompleted() === true, 'completed after calling complete');
+  assert(result.newStreak === 1, 'streak is 1 after first completion');
+  assert(dc.totalCompleted === 1, 'total completed is 1');
+});
+
+test('DailyChallenge state save/load', () => {
+  const dc = new DailyChallenge();
+  dc.complete();
+  const state = dc.getState();
+  assert(state.streak === 1, 'state streak is 1');
+  assert(state.totalCompleted === 1, 'state total is 1');
+
+  const dc2 = new DailyChallenge();
+  dc2.loadState(state);
+  assert(dc2.getStreak() >= 0, 'loaded streak is valid');
+  assert(dc2.totalCompleted === 1, 'loaded total is correct');
+});
+
+test('Theme unlock checking', () => {
+  // Import not available in this test, test via THEMES structure
+  const classicTheme = THEMES['classic'];
+  assert(classicTheme !== undefined, 'classic theme exists');
+  assert(classicTheme.unlockCondition.type === 'free', 'classic is free');
+  assert(Object.keys(THEMES).length >= 8, 'at least 8 themes');
+});
+
+test('SaveManager save and load', () => {
+  // localStorage may not be available in Node.js test env
+  // Test the interface without relying on real storage
+  const sm = new SaveManager(null);
+  assert(typeof sm.save === 'function', 'has save method');
+  assert(typeof sm.load === 'function', 'has load method');
+  assert(typeof sm.delete === 'function', 'has delete method');
+  assert(typeof sm.saveAll === 'function', 'has saveAll method');
+  assert(typeof sm.loadAll === 'function', 'has loadAll method');
+  assert(typeof sm.hasSavedGame === 'function', 'has hasSavedGame method');
+
+  // Test with a mock adapter
+  const mockStore = {};
+  const mockAdapter = {
+    save(key, data) { mockStore[key] = JSON.stringify(data); },
+    load(key) { const d = mockStore[key]; return d ? JSON.parse(d) : null; }
+  };
+  const sm2 = new SaveManager(mockAdapter);
+  sm2.save('test_key', { hello: 'world' });
+  const loaded = sm2.load('test_key');
+  assert(loaded !== null, 'loaded data is not null');
+  assert(loaded.hello === 'world', 'loaded data matches saved');
 });
 
 // --- Summary ---

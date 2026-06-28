@@ -10,6 +10,8 @@ import { Foundation } from '../src/game/foundation.js';
 import { Stock } from '../src/game/stock.js';
 import { Game, GAME_STATES } from '../src/game/game.js';
 import { createRng, lerp, clamp, easeOutQuad } from '../src/core/math.js';
+import { xpForLevel, totalXpForLevel, levelFromXp, calculateGameXp } from '../src/systems/progression.js';
+import { getDailySeed } from '../src/config/daily-seeds.js';
 
 let passed = 0;
 let failed = 0;
@@ -440,6 +442,93 @@ test('createRng produces values in [0,1)', () => {
     if (v < 0 || v >= 1) { allValid = false; break; }
   }
   assert(allValid, 'all values in [0,1)');
+});
+
+// --- Progression Math Tests ---
+console.log('\n[Progression]');
+
+test('xpForLevel calculates correctly', () => {
+  assert(xpForLevel(1) === 0, 'level 1 requires 0 xp');
+  assert(xpForLevel(2) === Math.floor(100 * Math.pow(2, 1.5)), 'level 2 xp formula');
+  assert(xpForLevel(3) > xpForLevel(2), 'xp increases with level');
+  assert(xpForLevel(5) > xpForLevel(4), 'level 5 > level 4');
+});
+
+test('totalXpForLevel is cumulative', () => {
+  const total3 = totalXpForLevel(3);
+  assert(total3 === xpForLevel(2) + xpForLevel(3), 'total for level 3 is sum of 2+3');
+  assert(totalXpForLevel(1) === 0, 'total for level 1 is 0');
+});
+
+test('levelFromXp is inverse of totalXpForLevel', () => {
+  assert(levelFromXp(0) === 1, '0 xp is level 1');
+  const xpForLvl2 = totalXpForLevel(2);
+  assert(levelFromXp(xpForLvl2) === 2, 'exact xp gives level 2');
+  assert(levelFromXp(xpForLvl2 - 1) === 1, 'just under level 2 xp is level 1');
+  const xpForLvl5 = totalXpForLevel(5);
+  assert(levelFromXp(xpForLvl5) === 5, 'exact xp gives level 5');
+});
+
+test('calculateGameXp base values', () => {
+  const lossXp = calculateGameXp({ won: false, time: 300, usedUndo: false, streak: 0 });
+  assert(lossXp === 10, 'loss gives base 10 xp');
+
+  const winXp = calculateGameXp({ won: true, time: 300, usedUndo: true, streak: 0 });
+  assert(winXp === 60, 'win without speed/noundo gives 60 xp (10+50)');
+
+  const fastWinXp = calculateGameXp({ won: true, time: 120, usedUndo: false, streak: 0 });
+  assert(fastWinXp === 110, 'fast win no undo gives 110 xp (10+50+30+20)');
+});
+
+test('calculateGameXp streak bonus', () => {
+  const withStreak = calculateGameXp({ won: true, time: 300, usedUndo: true, streak: 5 });
+  // 10 + 50 + 5*10 = 110
+  assert(withStreak === 110, 'streak adds bonus xp');
+});
+
+// --- Daily Seed Tests ---
+console.log('\n[Daily Seeds]');
+
+test('getDailySeed is deterministic for same date', () => {
+  const date = new Date(2024, 6, 1);
+  const s1 = getDailySeed(date);
+  const s2 = getDailySeed(date);
+  assert(s1 === s2, 'same date gives same seed');
+});
+
+test('getDailySeed differs for different dates', () => {
+  const date1 = new Date(2024, 6, 1);
+  const date2 = new Date(2024, 6, 2);
+  const s1 = getDailySeed(date1);
+  const s2 = getDailySeed(date2);
+  assert(s1 !== s2, 'different dates give different seeds');
+});
+
+test('getDailySeed produces same shuffle for same date', () => {
+  const date = new Date(2024, 3, 15);
+  const seed = getDailySeed(date);
+  const deck1 = createSeededDeck(seed);
+  const deck2 = createSeededDeck(seed);
+  let allSame = true;
+  for (let i = 0; i < 52; i++) {
+    if (deck1[i].suit !== deck2[i].suit || deck1[i].rank !== deck2[i].rank) {
+      allSame = false;
+      break;
+    }
+  }
+  assert(allSame, 'same daily seed produces same deck');
+});
+
+test('getDailySeed produces different shuffle for different date', () => {
+  const seed1 = getDailySeed(new Date(2024, 0, 1));
+  const seed2 = getDailySeed(new Date(2024, 0, 2));
+  const deck1 = createSeededDeck(seed1);
+  const deck2 = createSeededDeck(seed2);
+  let same = 0;
+  for (let i = 0; i < 52; i++) {
+    if (deck1[i].suit === deck2[i].suit && deck1[i].rank === deck2[i].rank) same++;
+  }
+  assert(same < 52, 'different daily seeds produce different decks');
 });
 
 // --- Summary ---

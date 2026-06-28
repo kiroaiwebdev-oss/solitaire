@@ -3,6 +3,7 @@
  */
 
 import { lerp, easeOutCubic } from '../core/math.js';
+import { drawThemeBack, DEFAULT_THEME } from '../config/themes.js';
 
 export const SUITS = ['spades', 'hearts', 'diamonds', 'clubs'];
 export const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -18,6 +19,25 @@ export function isBlack(suit) {
 
 export function suitColor(suit) {
   return isRed(suit) ? '#cc0000' : '#1a1a1a';
+}
+
+// Active theme for all card backs (shared across all cards)
+let _activeTheme = DEFAULT_THEME;
+
+/**
+ * Set the active card back theme.
+ * @param {string} themeId
+ */
+export function setCardTheme(themeId) {
+  _activeTheme = themeId || DEFAULT_THEME;
+}
+
+/**
+ * Get the active card back theme.
+ * @returns {string}
+ */
+export function getCardTheme() {
+  return _activeTheme;
 }
 
 export class Card {
@@ -197,45 +217,7 @@ export class Card {
   }
 
   _renderBack(ctx, w, h) {
-    const x = this.x;
-    const y = this.y;
-    const r = Math.min(w * 0.08, 6);
-
-    ctx.save();
-    _roundedRectPath(ctx, x, y, w, h, r);
-    ctx.fillStyle = '#1a3a6b';
-    ctx.fill();
-    ctx.strokeStyle = '#0d2040';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // Inner border
-    const inset = w * 0.08;
-    _roundedRectPath(ctx, x + inset, y + inset, w - inset * 2, h - inset * 2, r * 0.5);
-    ctx.strokeStyle = '#4a7abb';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // Diamond pattern
-    const cx = x + w / 2;
-    const cy = y + h / 2;
-    const patSize = w * 0.2;
-    ctx.fillStyle = '#2a5aab';
-    for (let row = -2; row <= 2; row++) {
-      for (let col = -1; col <= 1; col++) {
-        const px = cx + col * patSize;
-        const py = cy + row * patSize;
-        ctx.beginPath();
-        ctx.moveTo(px, py - patSize * 0.3);
-        ctx.lineTo(px + patSize * 0.2, py);
-        ctx.lineTo(px, py + patSize * 0.3);
-        ctx.lineTo(px - patSize * 0.2, py);
-        ctx.closePath();
-        ctx.fill();
-      }
-    }
-
-    ctx.restore();
+    drawThemeBack(ctx, this.x, this.y, w, h, _activeTheme);
   }
 
   _drawSuitSymbol(ctx, cx, cy, size, color) {

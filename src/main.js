@@ -9,12 +9,16 @@ import { Renderer } from './core/render.js';
 import { Audio } from './core/audio.js';
 import { Game, GAME_STATES } from './game/game.js';
 import { DragSystem } from './game/drag.js';
+import { setCardTheme } from './game/card.js';
 import { HUD } from './ui/hud.js';
 import { Screens } from './ui/screens.js';
 import { getAdapter } from './platform/index.js';
-import { SaveManager } from './systems/save-manager.js';
+import { SaveManager, SAVE_KEYS } from './systems/save-manager.js';
+import { Progression, calculateGameXp } from './systems/progression.js';
+import { DailyChallenge } from './systems/daily-challenge.js';
+import { Achievements } from './systems/achievements.js';
 import { SCORING } from './config/scoring.js';
-import { THEMES, DEFAULT_THEME } from './config/themes.js';
+import { THEMES, DEFAULT_THEME, isThemeUnlocked } from './config/themes.js';
 
 const SAVE_KEY_STATS = 'solitaire_stats';
 const SAVE_KEY_SETTINGS = 'solitaire_settings';
@@ -29,6 +33,14 @@ class App {
     this.loop = new GameLoop();
     this.adapter = getAdapter();
     this.saveManager = new SaveManager(this.adapter);
+
+    // Systems
+    this.progression = new Progression();
+    this.dailyChallenge = new DailyChallenge();
+    this.achievements = new Achievements();
+
+    // Load all persisted state
+    this._loadAllState();
 
     // Load settings
     this.settings = this._loadSettings();
@@ -57,10 +69,15 @@ class App {
     this.audioInitialized = false;
     this.gameActive = false;
     this.showingWinAnim = false;
+    this.usedUndoThisGame = false;
+    this.isDailyChallenge = false;
 
     // Stats
     this.stats = this._loadStats();
     this.screens.setStats(this.stats);
+
+    // Apply theme
+    setCardTheme(this.settings.cardTheme);
 
     // Game callbacks
     this.game.onWin = (score, moves, time) => {
@@ -68,7 +85,7 @@ class App {
       // Delay showing the win screen so animation plays first
       setTimeout(() => {
         this.screens.show('win', { score, moves, time });
-        this._recordWin(time);
+        this._recordWin(time, moves);
       }, 3000);
     };
 
@@ -78,6 +95,22 @@ class App {
     };
 
     this._initApp();
+  }
+
+  _loadAllState() {
+    const savedData = this.saveManager.loadAll();
+    this.progression.loadState(savedData.progression);
+    this.dailyChallenge.loadState(savedData.daily);
+    this.achievements.loadState(savedData.achievements);
+  }
+
+  _saveAllState() {
+    this.saveManager.saveAll({
+      stats: this.stats,
+      progression: this.progression.getState(),
+      achievements: this.achievements.getState(),
+      daily: this.dailyChallenge.getState()
+    });
   }
 
   _loadSettings() {
@@ -95,31 +128,105 @@ class App {
 
   _loadStats() {
     const saved = this.saveManager.load(SAVE_KEY_STATS);
-    return saved || { played: 0, won: 0, bestTime: null, currentStreak: 0, longestStreak: 0 };
+    return saved || {
+      played: 0,
+      won: 0,
+      bestTime: null,
+      averageTime: null,
+      currentStreak: 0,
+      longestStreak: 0,
+      longestWinStreak: 0,
+      totalMoves: 0,
+      hardModeWins: 0,
+      perfectWins: 0,
+      bestMoves: null,
+      dailyChallengesCompleted: 0,
+      dailyStreak: 0,
+      minimalistAchieved: false
+    };
   }
 
   _saveStats() {
     this.saveManager.save(SAVE_KEY_STATS, this.stats);
   }
 
-  _recordWin(time) {
+  _recordWin(time, moves) {
     this.stats.played++;
     this.stats.won++;
     this.stats.currentStreak++;
+    this.stats.totalMoves += moves || 0;
     if (this.stats.currentStreak > this.stats.longestStreak) {
       this.stats.longestStreak = this.stats.currentStreak;
+    }
+    if (this.stats.currentStreak > (this.stats.longestWinStreak || 0)) {
+      this.stats.longestWinStreak = this.stats.currentStreak;
     }
     if (this.stats.bestTime === null || time < this.stats.bestTime) {
       this.stats.bestTime = time;
     }
+    // Average time
+    const totalWins = this.stats.won;
+    if (this.stats.averageTime === null) {
+      this.stats.averageTime = time;
+    } else {
+      this.stats.averageTime = ((this.stats.averageTime * (totalWins - 1)) + time) / totalWins;
+    }
+    // Best moves (minimalist)
+    if (moves && (this.stats.bestMoves === null || moves < this.stats.bestMoves)) {
+      this.stats.bestMoves = moves;
+      this.stats.minimalistAchieved = true;
+    }
+    // Hard mode tracking
+    if (this.game && this.game.hardMode) {
+      this.stats.hardModeWins = (this.stats.hardModeWins || 0) + 1;
+    }
+    // Perfect game (no undo)
+    if (!this.usedUndoThisGame) {
+      this.stats.perfectWins = (this.stats.perfectWins || 0) + 1;
+    }
+    // Daily challenge
+    if (this.isDailyChallenge) {
+      const result = this.dailyChallenge.complete();
+      this.stats.dailyChallengesCompleted = this.dailyChallenge.totalCompleted;
+      this.stats.dailyStreak = result.newStreak;
+    }
+
+    // XP and progression
+    const xp = calculateGameXp({
+      won: true,
+      time,
+      usedUndo: this.usedUndoThisGame,
+      streak: this.dailyChallenge.getStreak()
+    });
+    const levelResult = this.progression.addXp(xp);
+
+    // Check achievements
+    this.achievements.check(this.stats);
+
     this._saveStats();
+    this._saveAllState();
     this.screens.setStats(this.stats);
   }
 
   _recordLoss() {
     this.stats.played++;
     this.stats.currentStreak = 0;
+    this.stats.totalMoves += (this.game ? this.game.moves : 0);
+
+    // XP for playing (base only)
+    const xp = calculateGameXp({
+      won: false,
+      time: this.game ? this.game.timer : 0,
+      usedUndo: this.usedUndoThisGame,
+      streak: 0
+    });
+    this.progression.addXp(xp);
+
+    // Check achievements (some are for playing, not winning)
+    this.achievements.check(this.stats);
+
     this._saveStats();
+    this._saveAllState();
     this.screens.setStats(this.stats);
   }
 
@@ -137,18 +244,19 @@ class App {
     );
   }
 
-  _startNewGame(hardMode) {
+  _startNewGame(hardMode, options = {}) {
     this.game = new Game({
       drawCount: hardMode ? 3 : this.settings.drawMode,
       audio: this.audio,
       hardMode,
-      hardModeTime: SCORING.HARD_MODE_TIME
+      hardModeTime: SCORING.HARD_MODE_TIME,
+      seed: options.seed || null
     });
     this.game.onWin = (score, moves, time) => {
       this.showingWinAnim = true;
       setTimeout(() => {
         this.screens.show('win', { score, moves, time });
-        this._recordWin(time);
+        this._recordWin(time, moves);
       }, 3000);
     };
     this.game.onLose = () => {
@@ -162,6 +270,8 @@ class App {
     this._positionCards();
     this.gameActive = true;
     this.showingWinAnim = false;
+    this.usedUndoThisGame = false;
+    this.isDailyChallenge = options.isDaily || false;
     this.screens.hide();
 
     // Coach marks on first run
@@ -477,6 +587,12 @@ class App {
       case 'startHard':
         this._startNewGame(true);
         break;
+      case 'dailyChallenge': {
+        const seed = this.dailyChallenge.getTodaySeed();
+        this.dailyChallenge.markPlayed();
+        this._startNewGame(false, { seed, isDaily: true });
+        break;
+      }
       case 'toggleSound':
         this.settings.soundEnabled = !this.settings.soundEnabled;
         this.audio.setMuted(!this.settings.soundEnabled);
@@ -485,9 +601,15 @@ class App {
         this.screens.show('settings'); // refresh buttons
         break;
       case 'cycleTheme': {
-        const themeKeys = Object.keys(THEMES);
+        const state = {
+          level: this.progression.getLevel(),
+          achievements: this.achievements.getUnlocked(),
+          dailyStreak: this.dailyChallenge.getStreak()
+        };
+        const themeKeys = Object.keys(THEMES).filter(k => isThemeUnlocked(k, state));
         const idx = themeKeys.indexOf(this.settings.cardTheme);
         this.settings.cardTheme = themeKeys[(idx + 1) % themeKeys.length];
+        setCardTheme(this.settings.cardTheme);
         this._saveSettings();
         this.screens.setSettings(this.settings);
         this.screens.show('settings');
@@ -527,6 +649,7 @@ class App {
     switch (action) {
       case 'undo':
         this.game.undo();
+        this.usedUndoThisGame = true;
         this._positionCards();
         break;
       case 'menu':
