@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Core engine and game logic - the foundation layer including rendering, input, audio, card entities, deck, tableau, foundation, stock/waste piles, drag-and-drop, and the game state machine. This produces a playable solitaire game with canvas rendering.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create index.html with HTML5 boilerplate, canvas element, meta viewport for responsiveness, favicon (inline SVG data URI of a spade), and ES module script loading",
     "Create styles.css with CSS custom properties design system, green felt background, full viewport canvas, safe-area insets, dvh units, responsive breakpoints for phone/tablet/desktop in portrait and landscape",
@@ -35,5 +35,5 @@
     "Open index.html - game loads, cards render, drag-and-drop functional"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "NODE_OPTIONS env var has a preload script that causes module loading failures. Must use NODE_OPTIONS='' before running node commands. All 167 selftest assertions and 53 domtest assertions pass. Build generates dist/standalone/ correctly. .gitignore excludes dist/ from version control."
 }
