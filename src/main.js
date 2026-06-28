@@ -8,7 +8,7 @@ import { GameLoop } from './core/loop.js';
 import { Input } from './core/input.js';
 import { Renderer } from './core/render.js';
 import { Audio } from './core/audio.js';
-import { Game, GAME_STATES } from './game/game.js';
+import { Game, GAME_STATES, DIFFICULTY, SCORING_MODE } from './game/game.js';
 import { DragSystem } from './game/drag.js';
 import { setCardTheme } from './game/card.js';
 import { HUD } from './ui/hud.js';
@@ -77,6 +77,9 @@ class App {
     this.stats = this._loadStats();
     this.screens.setStats(this.stats);
 
+    // Sync system state to screens
+    this._syncScreenState();
+
     // Apply theme
     setCardTheme(this.settings.cardTheme);
 
@@ -112,6 +115,36 @@ class App {
       achievements: this.achievements.getState(),
       daily: this.dailyChallenge.getState()
     });
+    this._syncScreenState();
+  }
+
+  _syncScreenState() {
+    if (!this.screens) return;
+    // Push daily challenge data
+    if (this.screens.setDailyData) {
+      this.screens.setDailyData({
+        streak: this.dailyChallenge.getStreak(),
+        completed: this.dailyChallenge.isCompleted(),
+        calendar: this.dailyChallenge.getCalendarMonth ? this.dailyChallenge.getCalendarMonth() : [],
+        totalCompleted: this.dailyChallenge.totalCompleted || 0
+      });
+    }
+    // Push achievements data
+    if (this.screens.setAchievements) {
+      this.screens.setAchievements({
+        unlocked: this.achievements.getUnlocked(),
+        progress: this.achievements.getProgress ? this.achievements.getProgress(this.stats) : []
+      });
+    }
+    // Push progression data
+    if (this.screens.setProgression) {
+      this.screens.setProgression({
+        level: this.progression.getLevel(),
+        xp: this.progression.xp,
+        progress: this.progression.getLevelProgress(),
+        currency: this.progression.currency
+      });
+    }
   }
 
   _loadSettings() {
@@ -131,7 +164,8 @@ class App {
       themeMode: saved ? (saved.themeMode || 'dark') : 'dark',
       tableFelt: saved ? (saved.tableFelt || 'green') : 'green',
       cardFaceStyle: saved ? (saved.cardFaceStyle || 'classic') : 'classic',
-      reducedMotion: saved ? (saved.reducedMotion || false) : false
+      reducedMotion: saved ? (saved.reducedMotion || false) : false,
+      scoringMode: saved ? (saved.scoringMode || 'standard') : 'standard'
     };
   }
 
@@ -194,7 +228,7 @@ class App {
     this.input.on('pointermove', (coords) => this._onPointerMove(coords));
     this.input.on('pointerup', (coords) => this._onPointerUp(coords));
     this.input.on('doubletap', (coords) => this._onDoubleTap(coords));
-    this.input.on('keyboard', (e) => this._onKeyboard(e));
+    this.input.on('shortcut', (e) => this._onKeyboard(e));
 
     // Visibility API for auto-pause
     document.addEventListener('visibilitychange', () => {
@@ -224,10 +258,32 @@ class App {
   _onDoubleTap(coords) {
     if (!this.gameActive || this.game.state !== GAME_STATES.PLAYING) return;
     this._ensureAudio();
-    if (this.game.autoMoveToFoundation) {
-      this.game.autoMoveToFoundation(coords.x, coords.y, this.layout);
-      this._positionCards();
+    // Resolve tap coordinates to the card at that position
+    const card = this._findCardAt(coords.x, coords.y);
+    if (card && card.faceUp && this.game.autoMoveToFoundation) {
+      const moved = this.game.autoMoveToFoundation(card);
+      if (moved) {
+        this._positionCards();
+        this.audio.play('cardPlace');
+      }
     }
+  }
+
+  _findCardAt(x, y) {
+    const layout = this.layout;
+    // Check waste pile top card
+    const wasteCard = this.game.stock.topWaste();
+    if (wasteCard && wasteCard.containsPoint(x, y)) return wasteCard;
+    // Check tableau columns (top to bottom for overlap)
+    for (let col = 6; col >= 0; col--) {
+      const column = this.game.tableau.columns[col];
+      for (let i = column.length - 1; i >= 0; i--) {
+        const card = column[i];
+        if (!card.faceUp) continue;
+        if (card.containsPoint(x, y)) return card;
+      }
+    }
+    return null;
   }
 
   _onKeyboard(e) {
@@ -250,11 +306,15 @@ class App {
 
   _startNewGame(hardMode, options = {}) {
     const drawCount = options.drawCount || (hardMode ? 3 : this.settings.drawMode);
+    const difficulty = options.difficulty || (hardMode ? (drawCount === 3 ? DIFFICULTY.EXPERT : DIFFICULTY.MEDIUM) : (drawCount === 3 ? DIFFICULTY.HARD : DIFFICULTY.EASY));
+    const scoringMode = options.scoringMode || this.settings.scoringMode || SCORING_MODE.STANDARD;
     this.game = new Game({
       drawCount,
+      difficulty,
+      scoringMode,
       audio: this.audio,
       hardMode,
-      hardModeTime: SCORING.HARD_MODE_TIME,
+      hardModeTime: hardMode ? (drawCount === 3 ? 300 : 600) : 0,
       seed: options.seed || null
     });
     this.game.onWin = (score, moves, time) => {

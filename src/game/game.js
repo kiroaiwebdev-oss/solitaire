@@ -267,10 +267,8 @@ export class Game {
 
     this._restoreState(state);
 
-    // Apply undo penalty for standard scoring
-    if (this.scoringMode === SCORING_MODE.STANDARD) {
-      this.score = Math.max(0, this.score + SCORING.UNDO_PENALTY);
-    }
+    // Score is already restored to pre-move value (implicit penalty of losing earned points)
+    // No additional penalty applied
 
     this.undoState = this._undoStack.length > 0 ? this._undoStack[this._undoStack.length - 1] : null;
     this.usedUndo = true;

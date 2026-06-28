@@ -581,10 +581,13 @@ export class Screens {
     const barCount = Math.min(s.played, 10);
     if (barCount > 0) {
       const barWidth = (chartW - 20) / 10;
+      const winRatio = s.played > 0 ? s.won / s.played : 0;
       for (let i = 0; i < barCount; i++) {
         const bx = chartX + 10 + i * barWidth;
-        const bh = chartH * 0.6 * (0.4 + Math.random() * 0.6);
-        ctx.fillStyle = (i < s.won && i < barCount) ? 'rgba(68,255,136,0.5)' : 'rgba(255,68,68,0.3)';
+        // Use deterministic heights based on position and win ratio
+        const isWin = i < Math.round(barCount * winRatio);
+        const bh = chartH * (isWin ? 0.55 : 0.3);
+        ctx.fillStyle = isWin ? 'rgba(68,255,136,0.5)' : 'rgba(255,68,68,0.3)';
         ctx.fillRect(bx + 2, chartY + chartH - bh, barWidth - 4, bh);
       }
     }
