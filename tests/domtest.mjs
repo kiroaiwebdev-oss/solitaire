@@ -30,6 +30,8 @@ import { DailyChallenge } from '../src/systems/daily-challenge.js';
 import { Achievements } from '../src/systems/achievements.js';
 import { ACHIEVEMENT_DEFS, getAllAchievementIds } from '../src/config/achievements.js';
 import { isThemeUnlocked } from '../src/config/themes.js';
+import { ParticleSystem } from '../src/ui/particles.js';
+import { AnimationManager } from '../src/ui/animations.js';
 import { existsSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -430,6 +432,8 @@ test('All source files exist at expected paths', () => {
   const requiredFiles = [
     'index.html',
     'styles.css',
+    'manifest.json',
+    'sw.js',
     'src/main.js',
     'src/core/loop.js',
     'src/core/input.js',
@@ -449,6 +453,8 @@ test('All source files exist at expected paths', () => {
     'src/systems/achievements.js',
     'src/ui/hud.js',
     'src/ui/screens.js',
+    'src/ui/particles.js',
+    'src/ui/animations.js',
     'src/platform/adapter.js',
     'src/platform/standalone.js',
     'src/platform/crazygames.js',
@@ -503,6 +509,86 @@ test('Build output validation (after build)', () => {
       }
     }
   }
+});
+
+// --- PWA and New File Tests ---
+console.log('\n[PWA and New Files]');
+
+test('manifest.json is valid JSON with required fields', () => {
+  const manifestPath = join(rootDir, 'manifest.json');
+  assert(existsSync(manifestPath), 'manifest.json exists');
+  const content = readFileSync(manifestPath, 'utf8');
+  let manifest;
+  try {
+    manifest = JSON.parse(content);
+    assert(true, 'manifest.json is valid JSON');
+  } catch (e) {
+    assert(false, 'manifest.json is NOT valid JSON: ' + e.message);
+    return;
+  }
+  assert(manifest.name !== undefined, 'manifest has name');
+  assert(manifest.short_name !== undefined, 'manifest has short_name');
+  assert(manifest.start_url !== undefined, 'manifest has start_url');
+  assert(manifest.display !== undefined, 'manifest has display');
+  assert(manifest.theme_color !== undefined, 'manifest has theme_color');
+  assert(manifest.background_color !== undefined, 'manifest has background_color');
+  assert(Array.isArray(manifest.icons), 'manifest has icons array');
+  assert(manifest.icons.length >= 1, 'manifest has at least 1 icon');
+});
+
+test('sw.js exists and contains cache logic', () => {
+  const swPath = join(rootDir, 'sw.js');
+  assert(existsSync(swPath), 'sw.js exists');
+  const content = readFileSync(swPath, 'utf8');
+  assert(content.includes('install'), 'sw.js handles install event');
+  assert(content.includes('fetch'), 'sw.js handles fetch event');
+  assert(content.includes('cache') || content.includes('Cache'), 'sw.js uses caching');
+});
+
+test('index.html has PWA support', () => {
+  const html = readFileSync(join(rootDir, 'index.html'), 'utf8');
+  assert(html.includes('manifest'), 'index.html links to manifest');
+  assert(html.includes('serviceWorker') || html.includes('sw.js'), 'index.html registers service worker');
+  assert(html.includes('theme-color'), 'index.html has theme-color meta');
+});
+
+test('ParticleSystem class instantiates correctly', () => {
+  const ps = new ParticleSystem();
+  assert(typeof ps.emit === 'function', 'has emit method');
+  assert(typeof ps.update === 'function', 'has update method');
+  assert(typeof ps.render === 'function', 'has render method');
+  assert(typeof ps.clear === 'function', 'has clear method');
+});
+
+test('AnimationManager class instantiates correctly', () => {
+  const am = new AnimationManager();
+  assert(typeof am.add === 'function', 'has add method');
+  assert(typeof am.update === 'function', 'has update method');
+  assert(typeof am.isAnimating === 'function', 'has isAnimating method');
+  assert(typeof am.cancel === 'function', 'has cancel method');
+});
+
+test('ParticleSystem emit and update cycle', () => {
+  const ps = new ParticleSystem();
+  // Should not throw even without a real canvas context
+  ps.emit('sparkle', 100, 100, 5);
+  assert(ps.particles.length > 0, 'particles emitted');
+  ps.update(0.016);
+  assert(true, 'update does not throw');
+  ps.clear();
+  assert(ps.particles.length === 0, 'clear removes all particles');
+});
+
+test('AnimationManager tween lifecycle', () => {
+  const am = new AnimationManager();
+  const target = { x: 0, y: 0 };
+  am.add(target, { x: 100 }, 1.0);
+  assert(am.isAnimating() === true, 'animating after add');
+  am.update(0.5);
+  assert(target.x > 0, 'target x moved after half duration');
+  am.update(0.6); // past duration
+  assert(target.x === 100, 'target x at final value after complete');
+  assert(am.isAnimating() === false, 'not animating after complete');
 });
 
 // --- Summary ---

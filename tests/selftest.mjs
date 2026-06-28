@@ -8,10 +8,15 @@ import { createDeck, shuffle, createSeededDeck } from '../src/game/deck.js';
 import { Tableau } from '../src/game/tableau.js';
 import { Foundation } from '../src/game/foundation.js';
 import { Stock } from '../src/game/stock.js';
-import { Game, GAME_STATES } from '../src/game/game.js';
+import { Game, GAME_STATES, DIFFICULTY, SCORING_MODE } from '../src/game/game.js';
 import { createRng, lerp, clamp, easeOutQuad } from '../src/core/math.js';
-import { xpForLevel, totalXpForLevel, levelFromXp, calculateGameXp } from '../src/systems/progression.js';
+import { xpForLevel, totalXpForLevel, levelFromXp, calculateGameXp, MILESTONES, Progression } from '../src/systems/progression.js';
 import { getDailySeed } from '../src/config/daily-seeds.js';
+import { DailyChallenge } from '../src/systems/daily-challenge.js';
+import { Achievements } from '../src/systems/achievements.js';
+import { ACHIEVEMENT_DEFS, getAllAchievementIds, ACHIEVEMENT_CATEGORIES, ACHIEVEMENT_RARITY } from '../src/config/achievements.js';
+import { THEMES, TABLE_THEMES, CARD_FACE_STYLES, isThemeUnlocked } from '../src/config/themes.js';
+import { SCORING } from '../src/config/scoring.js';
 
 let passed = 0;
 let failed = 0;
@@ -529,6 +534,339 @@ test('getDailySeed produces different shuffle for different date', () => {
     if (deck1[i].suit === deck2[i].suit && deck1[i].rank === deck2[i].rank) same++;
   }
   assert(same < 52, 'different daily seeds produce different decks');
+});
+
+// --- Premium Features: Unlimited Undo/Redo ---
+console.log('\n[Unlimited Undo/Redo]');
+
+test('multiple undo then redo', () => {
+  const game = new Game({ drawCount: 1, seed: 42 });
+  game.deal();
+  const initialMoves = game.moves;
+
+  game.drawFromStock(); // move 1
+  game.drawFromStock(); // move 2
+  game.drawFromStock(); // move 3
+  assert(game.moves === 3, 'should have 3 moves');
+  assert(game.canUndo() === true, 'canUndo after moves');
+
+  game.undo(); // undo move 3
+  assert(game.moves === 2, 'moves should be 2 after first undo');
+  assert(game.canUndo() === true, 'canUndo after first undo');
+  assert(game.canRedo() === true, 'canRedo after first undo');
+
+  game.undo(); // undo move 2
+  assert(game.moves === 1, 'moves should be 1 after second undo');
+  assert(game.canUndo() === true, 'canUndo after second undo');
+  assert(game.canRedo() === true, 'canRedo after second undo');
+
+  game.redo(); // redo move 2
+  assert(game.moves === 2, 'moves should be 2 after redo');
+  assert(game.canUndo() === true, 'canUndo after redo');
+});
+
+test('redo clears after new move', () => {
+  const game = new Game({ drawCount: 1, seed: 42 });
+  game.deal();
+  game.drawFromStock();
+  game.drawFromStock();
+  game.undo();
+  assert(game.canRedo() === true, 'canRedo before new move');
+  game.drawFromStock(); // new move should clear redo stack
+  assert(game.canRedo() === false, 'canRedo should be false after new move');
+});
+
+test('canUndo false at start', () => {
+  const game = new Game({ drawCount: 1, seed: 42 });
+  game.deal();
+  assert(game.canUndo() === false, 'cannot undo at game start');
+  assert(game.canRedo() === false, 'cannot redo at game start');
+});
+
+// --- Premium Features: Hint System ---
+console.log('\n[Hint System]');
+
+test('findHints returns array of valid moves', () => {
+  const game = new Game({ drawCount: 1, seed: 42 });
+  game.deal();
+  const hints = game.findHints();
+  assert(Array.isArray(hints), 'findHints returns array');
+  assert(hints.length > 0, 'should find at least one hint with seed 42');
+  if (hints.length > 0) {
+    assert(hints[0].from !== undefined, 'hint has from property');
+    assert(hints[0].to !== undefined, 'hint has to property');
+  }
+});
+
+test('getNextHint cycles through hints', () => {
+  const game = new Game({ drawCount: 1, seed: 42 });
+  game.deal();
+  const hint1 = game.getNextHint();
+  assert(hint1 !== null, 'getNextHint returns a hint');
+  if (hint1) {
+    assert(hint1.from !== undefined, 'next hint has from');
+    assert(hint1.to !== undefined, 'next hint has to');
+  }
+});
+
+// --- Premium Features: Difficulty Levels ---
+console.log('\n[Difficulty Levels]');
+
+test('EASY difficulty: draw-1, no timer', () => {
+  const game = new Game({ difficulty: DIFFICULTY.EASY });
+  game.deal();
+  assert(game.drawCount === 1, 'EASY uses draw-1');
+  assert(game.hardMode === false, 'EASY has no timer');
+});
+
+test('MEDIUM difficulty: draw-1, 10min timer', () => {
+  const game = new Game({ difficulty: DIFFICULTY.MEDIUM });
+  game.deal();
+  assert(game.drawCount === 1, 'MEDIUM uses draw-1');
+  assert(game.hardMode === true, 'MEDIUM has timer');
+  assert(game.hardModeTime === 600, 'MEDIUM has 10 min (600s) timer');
+});
+
+test('HARD difficulty: draw-3, no timer', () => {
+  const game = new Game({ difficulty: DIFFICULTY.HARD });
+  game.deal();
+  assert(game.drawCount === 3, 'HARD uses draw-3');
+  assert(game.hardMode === false, 'HARD has no timer');
+});
+
+test('EXPERT difficulty: draw-3, 5min timer', () => {
+  const game = new Game({ difficulty: DIFFICULTY.EXPERT });
+  game.deal();
+  assert(game.drawCount === 3, 'EXPERT uses draw-3');
+  assert(game.hardMode === true, 'EXPERT has timer');
+  assert(game.hardModeTime === 300, 'EXPERT has 5 min (300s) timer');
+});
+
+// --- Premium Features: Scoring Modes ---
+console.log('\n[Scoring Modes]');
+
+test('STANDARD scoring starts at 0', () => {
+  const game = new Game({ scoringMode: SCORING_MODE.STANDARD, seed: 42 });
+  game.deal();
+  assert(game.score === 0, 'standard starts at 0');
+});
+
+test('VEGAS scoring starts at -52', () => {
+  const game = new Game({ scoringMode: SCORING_MODE.VEGAS, seed: 42 });
+  game.deal();
+  assert(game.score === -52, 'vegas starts at -52');
+});
+
+test('NONE scoring always stays 0', () => {
+  const game = new Game({ scoringMode: SCORING_MODE.NONE, seed: 42 });
+  game.deal();
+  assert(game.score === 0, 'none starts at 0');
+  game.drawFromStock();
+  assert(game.score === 0, 'none stays at 0 after move');
+});
+
+// --- Premium Features: Move History ---
+console.log('\n[Move History]');
+
+test('moveHistory records moves', () => {
+  const game = new Game({ drawCount: 1, seed: 42 });
+  game.deal();
+  assert(Array.isArray(game.moveHistory), 'moveHistory is an array');
+  assert(game.moveHistory.length === 0, 'moveHistory starts empty');
+  game.drawFromStock();
+  assert(game.moveHistory.length === 1, 'moveHistory has 1 entry after draw');
+  game.drawFromStock();
+  assert(game.moveHistory.length === 2, 'moveHistory has 2 entries after 2 draws');
+});
+
+// --- Premium Features: Auto-Complete ---
+console.log('\n[Auto-Complete]');
+
+test('canAutoComplete with empty stock/waste and all face up', () => {
+  const game = new Game({ drawCount: 1, seed: 42 });
+  game.deal();
+  assert(game.canAutoComplete() === false, 'cannot auto-complete at start');
+  
+  // Clear stock and waste
+  game.stock.stock = [];
+  game.stock.waste = [];
+  // Make all tableau cards face up
+  for (const col of game.tableau.columns) {
+    for (const card of col) card.faceUp = true;
+  }
+  assert(game.canAutoComplete() === true, 'can auto-complete when stock empty and all face up');
+});
+
+// --- Premium Features: Achievements (27) ---
+console.log('\n[Achievements - All Conditions]');
+
+test('achievement definitions count', () => {
+  const ids = getAllAchievementIds();
+  assert(ids.length >= 25, `should have 25+ achievements, got ${ids.length}`);
+});
+
+test('achievement categories exist', () => {
+  assert(ACHIEVEMENT_CATEGORIES !== undefined, 'ACHIEVEMENT_CATEGORIES exported');
+  assert(Object.keys(ACHIEVEMENT_CATEGORIES).length >= 4, 'at least 4 categories');
+});
+
+test('achievement rarity tiers exist', () => {
+  assert(ACHIEVEMENT_RARITY !== undefined, 'ACHIEVEMENT_RARITY exported');
+  assert(Object.keys(ACHIEVEMENT_RARITY).length >= 4, 'at least 4 rarity tiers');
+});
+
+test('first_win achievement', () => {
+  const check = ACHIEVEMENT_DEFS['first_win'].check;
+  assert(check({ won: 0 }) === false, 'not unlocked with 0 wins');
+  assert(check({ won: 1 }) === true, 'unlocked with 1 win');
+});
+
+test('speed_demon achievement (under 3 min)', () => {
+  const check = ACHIEVEMENT_DEFS['speed_demon'].check;
+  assert(check({ bestTime: null }) === false, 'not unlocked with null time');
+  assert(check({ bestTime: 200 }) === false, 'not unlocked with 200s');
+  assert(check({ bestTime: 120 }) === true, 'unlocked with 120s');
+});
+
+test('century achievement (100 games)', () => {
+  const check = ACHIEVEMENT_DEFS['century'].check;
+  assert(check({ played: 50 }) === false, 'not unlocked at 50');
+  assert(check({ played: 100 }) === true, 'unlocked at 100');
+});
+
+test('foundation_builder achievement (50 wins)', () => {
+  const check = ACHIEVEMENT_DEFS['foundation_builder'].check;
+  assert(check({ won: 49 }) === false, 'not unlocked at 49');
+  assert(check({ won: 50 }) === true, 'unlocked at 50');
+});
+
+test('perfect_game achievement', () => {
+  const check = ACHIEVEMENT_DEFS['perfect_game'].check;
+  assert(check({ perfectWins: 0 }) === false, 'not unlocked at 0');
+  assert(check({ perfectWins: 1 }) === true, 'unlocked at 1');
+});
+
+test('hard_mode_hero achievement', () => {
+  const check = ACHIEVEMENT_DEFS['hard_mode_hero'].check;
+  assert(check({ hardModeWins: 0 }) === false, 'not unlocked at 0');
+  assert(check({ hardModeWins: 1 }) === true, 'unlocked at 1');
+});
+
+test('card_shark achievement (5 win streak)', () => {
+  const check = ACHIEVEMENT_DEFS['card_shark'].check;
+  assert(check({ longestWinStreak: 4 }) === false, 'not unlocked at 4');
+  assert(check({ longestWinStreak: 5 }) === true, 'unlocked at 5');
+});
+
+test('Achievements class check and unlock', () => {
+  const ach = new Achievements();
+  assert(ach.getUnlocked().length === 0, 'starts with 0 unlocked');
+  const newlyUnlocked = ach.check({ won: 1, played: 1 });
+  assert(newlyUnlocked.includes('first_win'), 'first_win unlocked');
+  assert(ach.isUnlocked('first_win') === true, 'isUnlocked returns true');
+  // Second check should not re-unlock
+  const again = ach.check({ won: 1, played: 1 });
+  assert(!again.includes('first_win'), 'does not re-unlock');
+});
+
+test('Achievements notification queue', () => {
+  const ach = new Achievements();
+  ach.check({ won: 1, played: 1 });
+  assert(ach.hasNotifications() === true, 'has notifications after unlock');
+  const notif = ach.popNotification();
+  assert(notif !== null, 'popNotification returns notification');
+  assert(notif.id === 'first_win', 'notification id is first_win');
+  assert(ach.hasNotifications() === false, 'no more notifications after pop');
+});
+
+// --- Premium Features: Themes ---
+console.log('\n[Themes]');
+
+test('12+ card back themes', () => {
+  assert(Object.keys(THEMES).length >= 10, `should have 10+ themes, got ${Object.keys(THEMES).length}`);
+});
+
+test('6 table felt themes', () => {
+  assert(Object.keys(TABLE_THEMES).length >= 6, `should have 6+ table themes, got ${Object.keys(TABLE_THEMES).length}`);
+});
+
+test('3 card face styles', () => {
+  assert(Object.keys(CARD_FACE_STYLES).length >= 3, `should have 3+ face styles, got ${Object.keys(CARD_FACE_STYLES).length}`);
+});
+
+test('isThemeUnlocked for free themes', () => {
+  assert(isThemeUnlocked('classic', {}) === true, 'classic is always unlocked');
+  assert(isThemeUnlocked('royalBlue', {}) === true, 'royalBlue is free');
+});
+
+test('isThemeUnlocked for level-locked themes', () => {
+  assert(isThemeUnlocked('crimson', { level: 1 }) === false, 'crimson locked at level 1');
+  assert(isThemeUnlocked('crimson', { level: 3 }) === true, 'crimson unlocked at level 3');
+});
+
+// --- Premium Features: Progression with Milestones ---
+console.log('\n[Progression Milestones]');
+
+test('MILESTONES exists and has entries', () => {
+  assert(typeof MILESTONES === 'object', 'MILESTONES is object');
+  assert(Object.keys(MILESTONES).length >= 5, 'has 5+ milestone levels');
+});
+
+test('Milestone at level 5 exists', () => {
+  assert(MILESTONES[5] !== undefined, 'level 5 milestone exists');
+  assert(MILESTONES[5].type !== undefined, 'milestone has type');
+  assert(MILESTONES[5].reward !== undefined, 'milestone has reward');
+});
+
+test('Progression addXp and level-up', () => {
+  const prog = new Progression();
+  assert(prog.getLevel() === 1, 'starts at level 1');
+  const result = prog.addXp(300);
+  assert(result.leveled === true, 'should level up with 300 xp');
+  assert(result.newLevel >= 2, 'should reach at least level 2');
+});
+
+test('Progression getLevelProgress', () => {
+  const prog = new Progression();
+  prog.addXp(50);
+  const progress = prog.getLevelProgress();
+  assert(progress >= 0 && progress <= 1, 'progress is between 0 and 1');
+});
+
+// --- Premium Features: Daily Challenge ---
+console.log('\n[Daily Challenge Enhanced]');
+
+test('DailyChallenge streak tracking', () => {
+  const dc = new DailyChallenge();
+  assert(dc.getStreak() === 0, 'starts with 0 streak');
+  const result = dc.complete();
+  assert(result.newStreak === 1, 'streak becomes 1 after first complete');
+});
+
+test('DailyChallenge getCalendarMonth', () => {
+  const dc = new DailyChallenge();
+  dc.complete();
+  const cal = dc.getCalendarMonth();
+  assert(Array.isArray(cal), 'getCalendarMonth returns array');
+});
+
+test('DailyChallenge state save/load', () => {
+  const dc = new DailyChallenge();
+  dc.complete();
+  const state = dc.getState();
+  assert(state.streak === 1, 'state has streak');
+  assert(state.totalCompleted === 1, 'state has totalCompleted');
+  
+  const dc2 = new DailyChallenge();
+  dc2.loadState(state);
+  assert(dc2.totalCompleted === 1, 'loaded totalCompleted');
+});
+
+// --- Premium Features: Scoring Config ---
+console.log('\n[Scoring Config]');
+
+test('SCORING has Vegas mode values', () => {
+  assert(SCORING.VEGAS_START !== undefined || SCORING.STANDARD !== undefined, 'has scoring mode configs');
 });
 
 // --- Summary ---

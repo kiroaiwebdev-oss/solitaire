@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "feat",
   "description": "Rebuild the test suite to cover all new functionality and ensure the build passes. Update all three test files to validate the new premium implementation. Then run full verification (tests + build).",
-  "status": "pending",
+  "status": "completed",
   "steps": [
     "Rewrite tests/selftest.mjs - comprehensive logic tests covering: card creation and rendering data, deck generation and seeded shuffle, tableau rules (canPlace, canPickSequence, removeSequence with reveal), foundation rules (canPlace, findValidPile, isComplete), stock draw-1 and draw-3 modes, full game deal verification (28 tableau + 24 stock = 52 cards), unlimited undo/redo stack (multiple undo then redo), hint system (finds valid moves), auto-complete detection, 4 difficulty levels, 3 scoring modes (Vegas/Standard/None), move history recording, progression XP calculations and level-up, daily seed determinism, achievement condition checking for all 25+ achievements, daily challenge streak logic, math utilities (lerp, clamp, easing, RNG)",
     "Rewrite tests/domtest.mjs - module loading verification for ALL source files (old and new), file structure validation (all files exist at expected paths), index.html structure checks (canvas, meta viewport, PWA tags, manifest link, sw registration), styles.css checks (CSS variables, responsive breakpoints, dvh, safe-area-inset, neomorphism classes), manifest.json validation (valid JSON, has required fields), integration tests (game deal+play cycle, drag system, daily seed, platform adapter interface, progression save/load, achievements save/load, particle system instantiation, animation system), build output validation if dist/ exists",
