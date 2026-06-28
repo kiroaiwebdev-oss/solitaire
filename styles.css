@@ -1,0 +1,116 @@
+:root {
+  --felt-green: #1a6b3c;
+  --felt-dark: #145530;
+  --card-white: #ffffff;
+  --card-shadow: rgba(0, 0, 0, 0.3);
+  --card-border: #cccccc;
+  --red-suit: #cc0000;
+  --black-suit: #1a1a1a;
+  --card-back-primary: #1a3a6b;
+  --card-back-secondary: #2a5aab;
+  --ui-text: #ffffff;
+  --ui-bg: rgba(0, 0, 0, 0.7);
+  --ui-accent: #ffd700;
+  --card-width: 70px;
+  --card-height: 100px;
+  --card-gap: 10px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--felt-green);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+#game-canvas {
+  display: block;
+  width: 100%;
+  height: 100dvh;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  cursor: default;
+}
+
+#fatal-error {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--ui-bg);
+  color: var(--ui-text);
+  font-family: system-ui, -apple-system, sans-serif;
+  z-index: 9999;
+}
+
+#fatal-error h1 {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+  color: var(--ui-accent);
+}
+
+#fatal-error p {
+  font-size: 1.2rem;
+  max-width: 80%;
+  text-align: center;
+}
+
+/* Responsive breakpoints */
+@media (max-width: 480px) {
+  :root {
+    --card-width: 45px;
+    --card-height: 64px;
+    --card-gap: 4px;
+  }
+}
+
+@media (min-width: 481px) and (max-width: 768px) {
+  :root {
+    --card-width: 55px;
+    --card-height: 78px;
+    --card-gap: 6px;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  :root {
+    --card-width: 65px;
+    --card-height: 92px;
+    --card-gap: 8px;
+  }
+}
+
+@media (min-width: 1025px) {
+  :root {
+    --card-width: 75px;
+    --card-height: 107px;
+    --card-gap: 10px;
+  }
+}
+
+/* Landscape adjustments */
+@media (orientation: landscape) and (max-height: 500px) {
+  :root {
+    --card-width: 40px;
+    --card-height: 57px;
+    --card-gap: 3px;
+  }
+}

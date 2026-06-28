@@ -1,0 +1,35 @@
+{
+  "id": "FEAT-004",
+  "type": "feat",
+  "description": "Platform adapters, build system, and deployment. Creates the monetization-ready platform adapter seam with implementations for all 5 platforms, the build script that generates per-platform zips, and DEPLOY.md documentation.",
+  "status": "pending",
+  "steps": [
+    "Create src/platform/adapter.js - base PlatformAdapter class/interface with methods: init(), showBannerAd(), showInterstitialAd(), showRewardedAd(callback), gameplayStart(), gameplayStop(), happyTime(), saveData(key, data), loadData(key), isAdblocked(), muteAudio(), unmuteAudio(). All methods have safe no-op defaults.",
+    "Create src/platform/sdkUtil.js - utility functions: waitForGlobal(name, timeout) polls for SDK global, safe(fn) wraps calls in try-catch with fallback, audioMuteHelper(audioContext, muted) for SDK-triggered mute, fallbackAdOverlay() shows a simple 'Continue in X seconds' overlay when ads blocked",
+    "Create src/platform/standalone.js - standalone adapter for itch.io/direct hosting: all ad methods are no-ops or show fallback overlay, save/load uses localStorage directly, no SDK dependency",
+    "Create src/platform/crazygames.js - CrazyGames adapter: loads CrazyGames SDK, implements showInterstitialAd/showRewardedAd via sdk.ad.requestAd(), gameplayStart/Stop events, happyTime, mute/unmute handling via sdk.game.sdkGameLoadingStop, adblock detection",
+    "Create src/platform/gamedistribution.js - GameDistribution adapter: integrates with GD SDK gdsdk.showAd(), preroll on init, interstitial between games, rewarded for undo/hints, event callbacks for ad start/complete/fail",
+    "Create src/platform/y8.js - Y8 adapter: Y8 Account SDK integration with ID.init(), ad calls via ID.GameAPI.Ads, achievement sync if available, save via Y8 cloud or localStorage fallback",
+    "Create src/platform/playhop.js - PlayHop/Playgama adapter: Playgama SDK integration, ad calls via PlgBridge.advertisement.showInterstitial(), game state events, reward callbacks",
+    "Create src/platform/index.js - adapter registry and auto-detection: check URL param ?platform=X, then window.__PLATFORM__, then try to detect from globals. Export getAdapter() that returns initialized adapter instance.",
+    "Create tools/build.mjs - build script using only Node.js stdlib (fs, path, child_process): (1) Read all source files. (2) For each platform, generate a modified index.html with platform-specific SDK script tag injected and window.__PLATFORM__ set. (3) Bundle all files into dist/<platform>/ directory. (4) Create dist/<platform>.zip with index.html at zip root (implement zip creation with Node.js zlib + manual zip format or use a simple tar approach). (5) Stamp a unique cache-busting version (timestamp-based) into each build. (6) Validate each zip has correct structure.",
+    "Create DEPLOY.md - comprehensive deployment documentation: how to build for each platform, how to upload to each portal, SDK configuration requirements, testing checklist per platform, troubleshooting common issues"
+  ],
+  "acceptance_criteria": [
+    "Platform auto-detection works via ?platform= URL param and window.__PLATFORM__",
+    "Each adapter implements all PlatformAdapter methods without errors",
+    "Standalone adapter works with no SDK present (pure localStorage)",
+    "Build script generates dist/ directories for all platforms",
+    "Each platform build has correct SDK script injected in index.html",
+    "Cache-busting version is unique per build",
+    "DEPLOY.md documents complete deployment process for all platforms",
+    "Adblock fallback overlay works when ads unavailable",
+    "Audio mute/unmute integrates with SDK callbacks"
+  ],
+  "verification": [
+    "node tools/build.mjs completes without errors and creates dist/ with platform directories",
+    "node tests/selftest.mjs passes platform adapter tests (adapter instantiation, method existence, detection logic)"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

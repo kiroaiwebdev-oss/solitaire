@@ -1,0 +1,36 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "UI layer, screens, HUD, scoring, timer, and win animations. This adds the complete user interface with menus, overlays, in-game HUD, scoring system, undo button, timer for Hard mode, and the win celebration with flying/cascading cards.",
+  "status": "pending",
+  "steps": [
+    "Create src/config/scoring.js - point values: waste-to-tableau 5pts, waste-to-foundation 10pts, tableau-to-foundation 10pts, turn card face up 5pts, foundation-to-tableau -15pts, undo penalty -20pts",
+    "Create src/ui/hud.js - in-game HUD rendered on canvas: score display, move counter, timer (for Hard mode countdown), undo button, new game button, menu button. All interactive elements have hover/press states and audio feedback. Responsive positioning for all screen sizes.",
+    "Create src/ui/screens.js - all game screens rendered on canvas overlays: (1) Main Menu with New Game, Continue, Daily Challenge, Settings, Statistics buttons. (2) Mode Select: Easy (draw-1 untimed) / Hard (draw-3 + countdown timer). (3) Settings: sound toggle, card back theme selector, draw mode preference. (4) Statistics: games played/won, win percentage, best time, current streak, longest streak. (5) Pause overlay with Resume/Restart/Quit. (6) Win screen with stats and play again. (7) Game Over (timer expired in Hard mode). Each screen has enter/exit animations.",
+    "Wire scoring into game.js - track score per move, display in HUD, apply undo penalty, show score change animations (floating +/- numbers)",
+    "Implement Hard mode timer - countdown from 10 minutes, display in HUD, game over when timer expires, timer pause when game paused",
+    "Create win animation in game.js - when game won: cards fly off foundations in cascading pattern with physics (gravity + random velocity), bounce off screen edges, particle trail effects. Plays win sound. Shows final score and time.",
+    "Add card flip animation - cards animate rotation when flipped face-up (scale X from 1 to 0 to 1 with face changing at midpoint)",
+    "Add move animations - cards animate smoothly to target positions using easing, not instant teleport",
+    "Add auto-complete button - appears when game detects all remaining moves are trivial (all cards face-up), animates remaining cards to foundations automatically",
+    "First-run coach marks - on first game ever, show 3-4 brief tooltip overlays explaining: drag cards, build tableau in alternating colors, goal is foundations Ace-to-King. Dismissable, never shown again."
+  ],
+  "acceptance_criteria": [
+    "All menu screens render correctly and are navigable",
+    "Every button has visual feedback (hover/press state) and audio click sound",
+    "Score updates correctly per the scoring rules on every valid move",
+    "Undo works (single undo) and deducts points",
+    "Hard mode timer counts down and triggers game over at zero",
+    "Win animation plays cascading flying cards when game is won",
+    "Card flip and move animations are smooth",
+    "Auto-complete detects eligible state and works when triggered",
+    "Coach marks appear on first run only",
+    "All screens are exitable - no dead ends in navigation"
+  ],
+  "verification": [
+    "node tests/selftest.mjs passes scoring logic tests",
+    "Manual verification: navigate all menu screens, play a game, trigger win animation"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

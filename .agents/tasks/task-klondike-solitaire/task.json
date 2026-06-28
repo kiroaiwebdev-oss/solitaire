@@ -1,0 +1,7 @@
+{
+  "task_id": "task-klondike-solitaire",
+  "task_description": "Build a complete, production-ready Klondike Solitaire HTML5 web game with canvas rendering, drag-and-drop, scoring, timer, daily challenges, achievements, unlockable themes, platform adapters for monetization, and automated test harness. All assets programmatically generated - no external dependencies.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005"],
+  "blocked_reason": null
+}

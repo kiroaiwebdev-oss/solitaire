@@ -1,0 +1,34 @@
+{
+  "id": "FEAT-005",
+  "type": "feat",
+  "description": "Automated test harness (selftest + domtest + SDK probes), final polish, and integration verification. Creates comprehensive tests, ensures all systems work together, and verifies acceptance criteria.",
+  "status": "pending",
+  "steps": [
+    "Create tests/selftest.mjs - logic/unit test harness using only Node.js stdlib. Test modules: (1) Deck: 52 unique cards generated, shuffle produces different order, seeded shuffle is deterministic. (2) Tableau: valid move detection (alternating colors, descending rank), invalid moves rejected, Kings-only on empty column. (3) Foundation: Ace starts pile, same-suit ascending validated, invalid placements rejected. (4) Stock: draw-1 and draw-3 modes work correctly, recycle resets stock. (5) Scoring: correct points per move type, undo penalty applied. (6) Win detection: detects all-in-foundations state. (7) Daily seeds: same date produces same seed, different dates produce different seeds. (8) Progression: XP calculation correct, level thresholds work. (9) Achievements: condition checking works. (10) Save/load: serialize and deserialize game state correctly. (11) Platform detection: adapter registry returns correct adapter for each platform string. Include a simple test runner that reports pass/fail counts.",
+    "Create tests/domtest.mjs - DOM/render test harness: uses Node.js with minimal DOM simulation (or validates file structure and module imports). Tests: (1) All source files exist at expected paths. (2) All ES module imports resolve (no broken imports). (3) index.html has required elements (canvas, script type=module, meta viewport, favicon). (4) styles.css has responsive breakpoints and CSS variables. (5) All screens defined in screens.js have enter/exit handling. (6) All buttons have click handlers. (7) Build output validation: each platform dir has index.html with SDK script.",
+    "Create tests/sdk-probes.mjs - SDK integration probes: (1) Each adapter class can be instantiated without errors. (2) All adapter methods exist and are callable. (3) Adapter detection logic returns correct types. (4) Safe() wrapper handles thrown errors gracefully. (5) waitForGlobal timeout works correctly.",
+    "Final integration check: ensure src/main.js properly boots the game - imports all modules, initializes platform adapter, creates game instance, starts loop, handles fatal errors with user-visible error UI",
+    "Verify responsive design: styles.css covers all breakpoints (phone portrait 320px+, phone landscape, tablet 768px+, desktop 1024px+), uses dvh/svh where appropriate, handles safe-area insets for notched phones",
+    "Verify all audio is gesture-gated: AudioContext only created on first user interaction, no autoplay errors",
+    "Add favicon as inline SVG data URI in index.html (spade symbol)",
+    "Verify no dead buttons: every UI element in screens.js and hud.js has a functional handler that produces an observable effect"
+  ],
+  "acceptance_criteria": [
+    "node tests/selftest.mjs exits with code 0 and all tests pass",
+    "node tests/domtest.mjs exits with code 0 and all structure validations pass",
+    "node tests/sdk-probes.mjs exits with code 0 and all adapter probes pass",
+    "node tools/build.mjs completes successfully generating all platform builds",
+    "No console errors on load (verified by test harness checking for throw/reject patterns)",
+    "index.html has favicon link element",
+    "All source files follow ES module pattern with proper imports/exports",
+    "Every screen in screens.js is reachable via navigation and exitable"
+  ],
+  "verification": [
+    "node tests/selftest.mjs - all logic tests pass",
+    "node tests/domtest.mjs - all DOM/structure tests pass",
+    "node tests/sdk-probes.mjs - all SDK probes pass",
+    "node tools/build.mjs - build completes and dist/ populated"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

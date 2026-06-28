@@ -1,0 +1,39 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Core engine and game logic - the foundation layer including rendering, input, audio, card entities, deck, tableau, foundation, stock/waste piles, drag-and-drop, and the game state machine. This produces a playable solitaire game with canvas rendering.",
+  "status": "in_progress",
+  "steps": [
+    "Create index.html with HTML5 boilerplate, canvas element, meta viewport for responsiveness, favicon (inline SVG data URI of a spade), and ES module script loading",
+    "Create styles.css with CSS custom properties design system, green felt background, full viewport canvas, safe-area insets, dvh units, responsive breakpoints for phone/tablet/desktop in portrait and landscape",
+    "Create src/core/loop.js - requestAnimationFrame game loop with dt clamped to <=0.05s, pause/resume support, update and render callbacks",
+    "Create src/core/input.js - unified pointer events (mouse + touch), keyboard input, drag state tracking with start/move/end handlers",
+    "Create src/core/math.js - vector2 operations, lerp, clamp, easing functions (easeOutQuad, easeOutBounce, easeInOutCubic), random helpers",
+    "Create src/core/render.js - Canvas2D renderer with resize handling (devicePixelRatio-aware), clear, draw primitives, text rendering, coordinate transforms",
+    "Create src/core/audio.js - Web Audio API synthesizer with gesture-gated AudioContext initialization. Synthesize sounds: cardFlip (short white noise burst), cardPlace (low thud), cardShuffle (multiple rapid flips), win (ascending arpeggio), buttonClick (short blip), undo (descending blip), error (buzz). All programmatic - no audio files.",
+    "Create src/game/card.js - Card class with suit, rank, faceUp state, x/y position, target position, width/height, animation state. Include programmatic card face rendering: draw suit symbols (spade/heart/diamond/club as path data), rank text, card borders with rounded corners, red/black coloring, card back pattern rendering",
+    "Create src/game/deck.js - generate full 52-card deck, Fisher-Yates shuffle, seeded random for daily challenges",
+    "Create src/game/tableau.js - 7 tableau column logic: deal cards (1-7 per column, top face up), validate moves (alternating colors, descending rank), accept cards, reveal top card on remove, empty columns accept Kings only",
+    "Create src/game/foundation.js - 4 foundation pile logic: accept Ace to start, same suit ascending, validate placement, check win condition (all 52 cards in foundations)",
+    "Create src/game/stock.js - stock/waste pile logic: draw-1 and draw-3 modes, cycle through stock, track waste cards, recycle waste back to stock when empty",
+    "Create src/game/drag.js - drag-and-drop system: hit testing cards, pick up single card or valid sequence from tableau, visual feedback during drag (cards follow pointer with offset), snap-to-target on valid drop, animate back on invalid drop, touch and mouse unified via pointer events",
+    "Create src/game/game.js - game orchestrator: state machine (menu/playing/paused/won/lost), deal new game, update all entities, render all piles and cards, handle move validation, scoring integration, undo support (single undo with state snapshot), auto-complete detection (when all remaining cards are face-up and can be moved to foundations), win animation trigger, timer for Hard mode"
+  ],
+  "acceptance_criteria": [
+    "index.html loads without errors and shows a green felt canvas",
+    "Cards are rendered programmatically on canvas with correct suits, ranks, colors, and card backs",
+    "A new game deals correctly: 7 tableau columns with 1-7 cards, top cards face up",
+    "Drag and drop works for moving cards between tableau columns and to foundations",
+    "Move validation enforces solitaire rules (alternating colors descending on tableau, same suit ascending on foundations)",
+    "Stock/waste pile works with both draw-1 and draw-3 modes",
+    "Win condition detected when all 52 cards are in foundations",
+    "Audio synthesizes and plays on user interaction",
+    "Game loop runs at smooth 60fps with clamped dt"
+  ],
+  "verification": [
+    "node tests/selftest.mjs passes all core logic tests (deck generation, shuffle, move validation, win detection)",
+    "Open index.html - game loads, cards render, drag-and-drop functional"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

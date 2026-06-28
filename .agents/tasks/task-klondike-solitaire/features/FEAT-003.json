@@ -1,0 +1,35 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Progression systems, daily challenges, achievements, save/load, and unlockable themes. This adds the meta-game layer with persistence, daily challenge seeds/streaks, XP/levels, achievement tracking, and card back theme unlocks.",
+  "status": "pending",
+  "steps": [
+    "Create src/config/themes.js - define 8+ card back themes: Classic Green (default/free), Royal Blue (free), Crimson (level 3), Gold Pattern (level 5), Night Sky (level 8), Ocean Wave (level 10), Abstract Art (win 10 games), Daily Champion (7-day streak). Each theme defined as draw instructions (colors, patterns, gradients) for programmatic canvas rendering.",
+    "Create src/config/achievements.js - achievement definitions: First Win, Speed Demon (win under 3 min), Streak Master (7-day streak), Perfect Game (no undos), Century (100 games played), Foundation Builder (50 wins), Daily Devotee (30 daily challenges), Card Shark (win 5 in a row), Minimalist (win with fewest moves), Hard Mode Hero (win on Hard)",
+    "Create src/config/daily-seeds.js - daily seed generation: deterministic seed from date (YYYY-MM-DD string hashed to number), produces same shuffle for all players on same day",
+    "Create src/systems/progression.js - XP system: earn XP per game (base + bonus for win/speed/no-undo), level thresholds (exponential curve), level-up notification, currency (coins) earned per level, track total XP and current level",
+    "Create src/systems/daily-challenge.js - daily challenge system: generate today's game from daily seed, track completion, streak counting (consecutive days played and won), streak display, streak bonus XP, streak-break notification",
+    "Create src/systems/achievements.js - achievement tracker: check conditions after each game, unlock achievements, show unlock notification (toast popup with icon and name), track progress toward each achievement",
+    "Create src/systems/save-manager.js - save/load system: save game state (current game in progress, all cards positions/states), save meta state (statistics, achievements, unlocks, progression, settings, daily streak). Use platform adapter for storage (localStorage fallback). Auto-save on every move. Load on startup.",
+    "Wire themes into card.js rendering - card back draws the selected theme pattern",
+    "Wire progression into game completion - award XP, check level-ups, check achievements after each game",
+    "Wire daily challenge into screens.js - daily challenge button shows today's challenge, streak display, completion status",
+    "Add statistics tracking - games played, games won, win percentage, best time, average time, longest win streak, total moves, favorite mode"
+  ],
+  "acceptance_criteria": [
+    "Save/load persists game state across page refreshes (localStorage)",
+    "Daily challenge produces same game for same date, different game for different date",
+    "Streak tracks consecutive daily challenge completions correctly",
+    "XP awards after game completion, level-up triggers at thresholds",
+    "Achievements unlock when conditions met and show notification",
+    "Card back themes render correctly, unlocked themes selectable in settings",
+    "Statistics accurately reflect play history",
+    "All meta-game state persists via save-manager"
+  ],
+  "verification": [
+    "node tests/selftest.mjs passes daily seed determinism tests, progression math tests, achievement condition tests",
+    "Manual verification: complete a game, verify save persists, check XP awarded, verify daily challenge seed consistency"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
