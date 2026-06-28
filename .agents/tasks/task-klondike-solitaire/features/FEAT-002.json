@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "UI layer, screens, HUD, scoring, timer, and win animations. This adds the complete user interface with menus, overlays, in-game HUD, scoring system, undo button, timer for Hard mode, and the win celebration with flying/cascading cards.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create src/config/scoring.js - point values: waste-to-tableau 5pts, waste-to-foundation 10pts, tableau-to-foundation 10pts, turn card face up 5pts, foundation-to-tableau -15pts, undo penalty -20pts",
     "Create src/ui/hud.js - in-game HUD rendered on canvas: score display, move counter, timer (for Hard mode countdown), undo button, new game button, menu button. All interactive elements have hover/press states and audio feedback. Responsive positioning for all screen sizes.",
@@ -32,5 +32,5 @@
     "Manual verification: navigate all menu screens, play a game, trigger win animation"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 167 selftest and 53 domtest assertions pass. Build produces dist/standalone/ successfully. Card flip animation sets faceUp immediately for game logic but triggers a visual scale-X animation (starting at scale 0 expanding to 1) so the card appears to flip open. The undo penalty results in Math.max(0, savedScore - 20) which floors at 0. Win animation uses setTimeout(3000ms) to delay showing the win screen so flying cards play first. Coach marks saved with key solitaire_coach_seen. Settings saved with key solitaire_settings. Stats saved with key solitaire_stats."
 }
