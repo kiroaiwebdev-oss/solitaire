@@ -106,10 +106,13 @@ export class Screens {
     this.loadProgress = 0;
     this.loadTime = 0;
     this.achievementsData = { unlocked: [], progress: {} };
-    this.dailyData = { completed: false, streak: 0, calendar: [] };
+    this.dailyData = { completed: false, streak: 0, calendar: [], rewardAvailable: false };
     this.progressionData = { level: 1, xp: 0, xpNext: 100 };
     this.achievementCategory = 'all';
     this.dragSlider = null;
+    // How-to-Play tutorial paging
+    this.howToPlayPage = 0;
+    this.howToPlayPageCount = 5;
   }
 
   show(screenName, data) {
@@ -237,6 +240,7 @@ export class Screens {
       case 'statistics': this._renderStatistics(ctx, w, h); break;
       case 'achievements': this._renderAchievements(ctx, w, h); break;
       case 'dailyChallenge': this._renderDailyChallenge(ctx, w, h); break;
+      case 'howToPlay': this._renderHowToPlay(ctx, w, h); break;
       case 'pause': this._renderPause(ctx, w, h); break;
       case 'win': this._renderWin(ctx, w, h); break;
       case 'gameOver': this._renderGameOver(ctx, w, h); break;
@@ -285,19 +289,24 @@ export class Screens {
     switch (this.activeScreen) {
       case 'loading': break;
       case 'mainMenu': {
-        const startY = h * 0.35;
         const items = [
           ['New Game', 'modeSelect'],
           ['Daily Challenge', 'dailyChallenge'],
+          ['How to Play', 'howToPlay'],
           ['Continue', 'continue'],
           ['Statistics', 'statistics'],
           ['Achievements', 'achievements'],
           ['Settings', 'settings']
         ];
+        // Fit-safe vertical layout: distribute within available band.
+        const startY = h * 0.30;
+        const endY = h * 0.95;
+        const slot = (endY - startY) / items.length;
+        const useH = Math.min(btnH, slot * 0.82);
         items.forEach((item, i) => {
           const btn = new ScreenButton(item[0], item[1]);
-          btn.x = cx; btn.y = startY + i * (btnH + gap);
-          btn.width = btnW; btn.height = btnH;
+          btn.x = cx; btn.y = startY + i * slot + (slot - useH) / 2;
+          btn.width = btnW; btn.height = useH;
           if (item[1] === 'continue') btn.enabled = this.hasSavedGame;
           this.buttons.push(btn);
         });
@@ -382,25 +391,46 @@ export class Screens {
         break;
       }
       case 'dailyChallenge': {
-        const startY = h * 0.55;
+        const startY = h * 0.52;
         const dailyLabel = this.dailyData.completed ? 'Completed!' : "Start Today's Challenge";
         const btn = new ScreenButton(dailyLabel, 'startDaily', { enabled: !this.dailyData.completed });
         btn.x = cx; btn.y = startY; btn.width = btnW; btn.height = btnH;
         this.buttons.push(btn);
+        // Daily reward claim button
+        const rewardAvail = this.dailyData.rewardAvailable;
+        const rewardBtn = new ScreenButton(rewardAvail ? 'Claim Daily Reward' : 'Reward Claimed', 'claimDailyReward', { enabled: rewardAvail });
+        rewardBtn.x = cx; rewardBtn.y = startY + (btnH + gap); rewardBtn.width = btnW; rewardBtn.height = btnH;
+        this.buttons.push(rewardBtn);
         const backBtn = new ScreenButton('Back', 'back', { secondary: true });
-        backBtn.x = cx; backBtn.y = startY + btnH + gap; backBtn.width = btnW; backBtn.height = btnH;
+        backBtn.x = cx; backBtn.y = startY + 2 * (btnH + gap); backBtn.width = btnW; backBtn.height = btnH;
         this.buttons.push(backBtn);
         break;
       }
       case 'pause': {
-        const startY = h * 0.3;
-        const items = [['Resume', 'resume'], ['Restart', 'restart'], ['Settings', 'settings'], ['Quit to Menu', 'quit']];
+        const startY = h * 0.28;
+        const items = [['Resume', 'resume'], ['Restart', 'restart'], ['How to Play', 'howToPlay'], ['Settings', 'settings'], ['Quit to Menu', 'quit']];
         items.forEach((item, i) => {
           const btn = new ScreenButton(item[0], item[1], { secondary: item[1] === 'quit' });
           btn.x = cx; btn.y = startY + i * (btnH + gap);
           btn.width = btnW; btn.height = btnH;
           this.buttons.push(btn);
         });
+        break;
+      }
+      case 'howToPlay': {
+        // Bottom navigation row: Prev | Close | Next
+        const navY = h * 0.88;
+        const navW = (btnW - 2 * 8) / 3;
+        const prevBtn = new ScreenButton('\u2190 Back', 'htpPrev', { secondary: true, enabled: this.howToPlayPage > 0 });
+        prevBtn.x = cx; prevBtn.y = navY; prevBtn.width = navW; prevBtn.height = btnH;
+        this.buttons.push(prevBtn);
+        const closeBtn = new ScreenButton('Close', 'htpClose', { secondary: true });
+        closeBtn.x = cx + navW + 8; closeBtn.y = navY; closeBtn.width = navW; closeBtn.height = btnH;
+        this.buttons.push(closeBtn);
+        const isLast = this.howToPlayPage >= this.howToPlayPageCount - 1;
+        const nextBtn = new ScreenButton(isLast ? 'Done' : 'Next \u2192', isLast ? 'htpClose' : 'htpNext');
+        nextBtn.x = cx + 2 * (navW + 8); nextBtn.y = navY; nextBtn.width = navW; nextBtn.height = btnH;
+        this.buttons.push(nextBtn);
         break;
       }
       case 'win': {
@@ -699,6 +729,162 @@ export class Screens {
     ctx.font = (titleSize * 0.35) + 'px system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.fillText('Longest Streak: ' + (this.dailyData.longestStreak || streak), w / 2, h * 0.5);
+  }
+
+  _renderHowToPlay(ctx, w, h) {
+    const page = this.howToPlayPage || 0;
+    const titleSize = Math.min(w * 0.06, 30);
+    const bodySize = Math.min(w * 0.038, 16);
+    const accent = '#d4af37';
+
+    // Title + page indicator
+    const titles = ['Objective', 'The Tableau', 'The Foundations', 'Stock & Waste', 'Scoring & Tips'];
+    ctx.font = 'bold ' + titleSize + 'px system-ui, sans-serif';
+    ctx.fillStyle = accent;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('How to Play', w / 2, h * 0.07);
+    ctx.font = 'bold ' + (titleSize * 0.7) + 'px system-ui, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(titles[page] || '', w / 2, h * 0.14);
+
+    // Page dots
+    const dotY = h * 0.19;
+    const dotR = Math.max(3, w * 0.008);
+    const dotGap = dotR * 3.5;
+    const totalW = (this.howToPlayPageCount - 1) * dotGap;
+    for (let i = 0; i < this.howToPlayPageCount; i++) {
+      ctx.beginPath();
+      ctx.arc(w / 2 - totalW / 2 + i * dotGap, dotY, dotR, 0, Math.PI * 2);
+      ctx.fillStyle = i === page ? accent : 'rgba(255,255,255,0.25)';
+      ctx.fill();
+    }
+
+    const cw = Math.min(w * 0.13, 54);
+    const ch = cw * 1.4;
+    const midX = w / 2;
+    const diagramY = h * 0.30;
+    ctx.textAlign = 'center';
+
+    const lines = (arr, startY, size) => {
+      ctx.font = size + 'px system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.82)';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      arr.forEach((ln, i) => ctx.fillText(ln, w / 2, startY + i * (size + 8)));
+    };
+
+    if (page === 0) {
+      // Objective: four foundations A..K
+      const suits = ['spades', 'hearts', 'diamonds', 'clubs'];
+      const totalCardsW = 4 * cw + 3 * 10;
+      let fx = midX - totalCardsW / 2;
+      for (let i = 0; i < 4; i++) {
+        this._drawMiniCard(ctx, fx, diagramY, cw, ch, i === 0 ? 'A' : 'K', suits[i], true);
+        fx += cw + 10;
+      }
+      lines([
+        'Move all 52 cards to the four',
+        'foundation piles to win the game.',
+        'Each foundation is built up by suit,',
+        'from Ace all the way to King.'
+      ], diagramY + ch + 30, bodySize);
+    } else if (page === 1) {
+      // Tableau: red8, black7, red6 descending alternating
+      const startY = diagramY - ch * 0.2;
+      this._drawMiniCard(ctx, midX - cw / 2, startY, cw, ch, '8', 'hearts', true);
+      this._drawMiniCard(ctx, midX - cw / 2, startY + ch * 0.34, cw, ch, '7', 'spades', true);
+      this._drawMiniCard(ctx, midX - cw / 2, startY + ch * 0.68, cw, ch, '6', 'diamonds', true);
+      lines([
+        'Build columns DOWN in rank and in',
+        'ALTERNATING colours (red on black).',
+        'Move single cards or ordered runs.',
+        'Only a King may fill an empty column.'
+      ], startY + ch * 0.68 + ch + 24, bodySize);
+    } else if (page === 2) {
+      // Foundations: A,2,3 of spades stacked up
+      const totalCardsW = 3 * cw + 2 * 12;
+      let fx = midX - totalCardsW / 2;
+      ['A', '2', '3'].forEach((rk) => {
+        this._drawMiniCard(ctx, fx, diagramY, cw, ch, rk, 'spades', true);
+        fx += cw + 12;
+      });
+      lines([
+        'Start each foundation with an Ace,',
+        'then add the same suit in order:',
+        'A, 2, 3 ... up to Queen and King.',
+        'Double-tap a card to send it up fast.'
+      ], diagramY + ch + 30, bodySize);
+    } else if (page === 3) {
+      // Stock & waste
+      this._drawMiniCard(ctx, midX - cw - 20, diagramY, cw, ch, '', 'spades', false);
+      this._drawMiniCard(ctx, midX + 20, diagramY, cw, ch, '9', 'clubs', true);
+      ctx.font = (bodySize * 0.85) + 'px system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.fillText('Stock', midX - cw / 2 - 20, diagramY + ch + 14);
+      ctx.fillText('Waste', midX + 20 + cw / 2, diagramY + ch + 14);
+      lines([
+        'Tap the stock to deal cards to the waste.',
+        'Play the top waste card to tableau or',
+        'foundation. Draw-1 and Draw-3 modes are',
+        'available. Recycle when the stock empties.'
+      ], diagramY + ch + 40, bodySize);
+    } else {
+      // Scoring & tips
+      lines([
+        'Scoring (Standard):',
+        '+10 waste/tableau \u2192 foundation',
+        '+5 reveal a hidden card  \u2022  fast wins bonus',
+        '',
+        'Tips:',
+        '\u2022 Tap a card then a destination to move it.',
+        '\u2022 Use the \u2728 Hint button when stuck.',
+        '\u2022 Auto-Complete appears when you can win.',
+        '\u2022 Undo/redo freely \u2014 plan ahead!'
+      ], diagramY - ch * 0.1, bodySize);
+    }
+  }
+
+  /**
+   * Draw a small decorative card for tutorial diagrams.
+   */
+  _drawMiniCard(ctx, x, y, w, h, rank, suit, faceUp) {
+    const r = Math.min(w * 0.12, 7);
+    const path = () => {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+    };
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 3;
+    if (faceUp) {
+      path(); ctx.fillStyle = '#fdfdfd'; ctx.fill();
+      ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+      ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.lineWidth = 1; ctx.stroke();
+      const red = (suit === 'hearts' || suit === 'diamonds');
+      const sym = { spades: '\u2660', hearts: '\u2665', diamonds: '\u2666', clubs: '\u2663' }[suit];
+      ctx.fillStyle = red ? '#cc1133' : '#1a1a1a';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      if (rank) {
+        ctx.font = 'bold ' + (w * 0.34) + 'px system-ui, sans-serif';
+        ctx.fillText(rank, x + w * 0.12, y + h * 0.06);
+      }
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = (w * 0.5) + 'px system-ui, sans-serif';
+      ctx.fillText(sym, x + w / 2, y + h * 0.58);
+    } else {
+      path();
+      const g = ctx.createLinearGradient(x, y, x, y + h);
+      g.addColorStop(0, '#2a5aab'); g.addColorStop(1, '#1a3a6b');
+      ctx.fillStyle = g; ctx.fill();
+      ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1.2; ctx.stroke();
+      const inset = w * 0.16;
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.strokeRect(x + inset, y + inset, w - inset * 2, h - inset * 2);
+    }
+    ctx.restore();
   }
 
   _renderPause(ctx, w, h) {

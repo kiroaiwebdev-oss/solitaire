@@ -76,7 +76,7 @@ test('boot reached main menu', () => {
 // ---------------------------------------------------------------------------
 console.log('\n[Drive Every Screen: render + update]');
 const ALL_SCREENS = ['loading', 'mainMenu', 'modeSelect', 'settings', 'statistics',
-  'achievements', 'dailyChallenge', 'pause', 'win', 'gameOver'];
+  'achievements', 'dailyChallenge', 'howToPlay', 'pause', 'win', 'gameOver'];
 
 for (const screen of ALL_SCREENS) {
   test(`screen "${screen}" builds, renders and updates without throwing`, () => {
@@ -178,6 +178,45 @@ test('invoking every HUD action handler does not throw', () => {
   // Leaving pause/menu state: go back to a game.
   app._handleScreenAction('resume');
   assert(true, 'all HUD action handlers executed without throwing');
+});
+
+// "Doesn't throw" is not enough — verify the previously-dead actions produce
+// a real, observable effect (state change or visible highlight).
+test('hint / redo / autoComplete are functional, not no-ops', () => {
+  // hint -> visible highlight state or a toast
+  app._handleScreenAction('startEasy');
+  app.hint.active = false; app._toasts = [];
+  app._handleHudAction('hint');
+  assert((app.hint && app.hint.active) || app._toasts.length > 0,
+    'hint produces a visible highlight or toast (not a no-op)');
+
+  // redo -> restores a move that was undone
+  app._handleScreenAction('startEasy');
+  app.game.drawFromStock();
+  const movesAfterDraw = app.game.moves;
+  app._handleHudAction('undo');
+  assert(app.game.moves === movesAfterDraw - 1, 'undo changed state');
+  app._handleHudAction('redo');
+  assert(app.game.moves === movesAfterDraw, 'redo restored the move (not a no-op)');
+
+  // autoComplete -> actually begins auto-completing a solvable board
+  app._handleScreenAction('startEasy');
+  const g = app.game;
+  g.stock.stock = []; g.stock.waste = [];
+  g.foundation.piles = [[], [], [], []];
+  g.tableau.columns = [[], [], [], [], [], [], []];
+  const SUITS2 = ['spades', 'hearts', 'diamonds', 'clubs'];
+  const RANKS2 = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+  const find2 = (s, r) => g.allCards.find(c => c.suit === s && c.rank === r);
+  for (let p = 0; p < 4; p++) {
+    for (let i = RANKS2.length - 1; i >= 0; i--) {
+      const card = find2(SUITS2[p], RANKS2[i]); card.faceUp = true; g.tableau.columns[p].push(card);
+    }
+  }
+  assert(g.canAutoComplete() === true, 'board is auto-completable');
+  app._handleHudAction('autoComplete');
+  assert(g.autoCompleting === true, 'autoComplete actually started the cascade (not a no-op)');
+  g.autoCompleting = false; // stop the cascade for test isolation
 });
 
 // ---------------------------------------------------------------------------
@@ -351,6 +390,156 @@ test('no soft-lock: can always reach menu and start a fresh game', () => {
   app._handleScreenAction('modeSelect'); settle();
   app._handleScreenAction('startHard'); settle();   // start again
   assert(app.gameActive === true, 'can start a new game from menu');
+});
+
+// ---------------------------------------------------------------------------
+console.log('\n[Hint Highlight / How-to-Play / Tap-to-Move / Toasts]');
+
+test('Hint button sets a visible highlight state (not a no-op) and fades out', () => {
+  app._handleScreenAction('startEasy');
+  app.hint.active = false;
+  app._toasts = [];
+  app._handleHudAction('hint');
+  const shown = (app.hint && app.hint.active === true) || (app._toasts && app._toasts.length > 0);
+  assert(shown, 'hint sets an active highlight OR shows a toast (real visible effect)');
+  if (app.hint.active && !app.hint.isStock) {
+    assert(app.hint.data && app.hint.data.from && app.hint.data.to,
+      'active hint references a concrete from/to move');
+  }
+  app._render(0.016); // renders the highlight without throwing
+  for (let i = 0; i < 300 && app.hint.active; i++) app._update(0.016);
+  assert(app.hint.active === false, 'hint highlight fades out after its duration');
+});
+
+test('Hint with no available move offers the stock + shows a toast', () => {
+  app._handleScreenAction('startEasy');
+  const g = app.game;
+  // Empty board (no tableau/foundation moves) but stock still has cards.
+  g.tableau.columns = [[], [], [], [], [], [], []];
+  g.foundation.piles = [[], [], [], []];
+  g.stock.waste = [];
+  g._hints = []; g._currentHintIndex = 0;
+  app.hint.active = false; app._toasts = [];
+  app._handleHudAction('hint');
+  assert(app.hint.active === true && app.hint.isStock === true, 'stock offered as the hint when no moves exist');
+  assert(app._toasts.length > 0, 'a guidance toast is shown when no moves are available');
+});
+
+test('How-to-Play is reachable from the menu, pages, renders, and is exitable', () => {
+  const settle = () => { for (let i = 0; i < 12 && app.screens.transitioning; i++) app.screens.update(0.1); };
+  app._handleScreenAction('mainMenu'); settle();
+  app.screens.activeScreen = 'mainMenu'; app.screens._buildButtons();
+  const menuActions = app.screens.buttons.map(b => b.action);
+  assert(menuActions.includes('howToPlay'), 'main menu exposes a How to Play entry');
+
+  app._handleScreenAction('howToPlay'); settle();
+  assert(app.screens.activeScreen === 'howToPlay', 'How to Play screen becomes active');
+
+  // Every tutorial page builds nav buttons and renders without throwing.
+  for (let p = 0; p < app.screens.howToPlayPageCount; p++) {
+    app.screens.howToPlayPage = p;
+    app.screens._buildButtons();
+    app.screens.render();
+    assert(app.screens.buttons.length >= 3, `page ${p} builds Prev/Close/Next navigation`);
+  }
+  // Next/Back navigation changes the page.
+  app.screens.howToPlayPage = 0;
+  app._handleScreenAction('htpNext');
+  assert(app.screens.howToPlayPage === 1, 'Next advances the tutorial page');
+  app._handleScreenAction('htpPrev');
+  assert(app.screens.howToPlayPage === 0, 'Back returns to the previous page');
+
+  // Exitable back to the menu.
+  app._handleScreenAction('htpClose'); settle();
+  assert(app.screens.activeScreen === 'mainMenu', 'How to Play closes back to the main menu');
+});
+
+test('How-to-Play is reachable from Pause and returns to Pause', () => {
+  const settle = () => { for (let i = 0; i < 12 && app.screens.transitioning; i++) app.screens.update(0.1); };
+  app._handleScreenAction('startEasy'); settle();
+  app._handleHudAction('menu'); settle();
+  assert(app.screens.activeScreen === 'pause', 'pause screen is open');
+  app._handleScreenAction('howToPlay'); settle();
+  assert(app.screens.activeScreen === 'howToPlay', 'How to Play opens from pause');
+  app._handleScreenAction('htpClose'); settle();
+  assert(app.screens.activeScreen === 'pause', 'closing returns to pause (not the menu)');
+  app._handleScreenAction('resume'); settle();
+});
+
+test('tap-to-move: select a card, then tap a valid destination to move it', () => {
+  app._handleScreenAction('startEasy');
+  const g = app.game;
+  const fu = (s, r) => { const c = new Card(s, r); c.faceUp = true; return c; };
+  g.tableau.columns[0] = [fu('hearts', '8')]; // red 8 (target)
+  g.tableau.columns[1] = [fu('spades', '7')]; // black 7 (source)
+  app._positionCards();
+  app._clearSelection();
+
+  const src = g.tableau.columns[1][0];
+  app._handleTap(src.x + 5, src.y + 5, { type: 'tableau', index: 1, cardIndex: 0 }, [src]);
+  assert(app.selectedCards && app.selectedCards.length === 1, 'first tap selects a movable card');
+
+  const tgt = g.tableau.columns[0][0];
+  app._handleTap(tgt.x + 5, tgt.y + 5, { type: 'tableau', index: 0, cardIndex: 0 }, [tgt]);
+  assert(g.tableau.columns[0].length === 2, 'second tap moved the 7 onto the 8');
+  assert(g.tableau.columns[1].length === 0, 'source column is now empty');
+  assert(app.selectedCards === null, 'selection is cleared after the move');
+});
+
+test('tap-to-move: tapping the same selected card deselects it', () => {
+  app._handleScreenAction('startEasy');
+  const g = app.game;
+  const fu = (s, r) => { const c = new Card(s, r); c.faceUp = true; return c; };
+  g.tableau.columns[2] = [fu('clubs', '9')];
+  app._positionCards();
+  app._clearSelection();
+  const c = g.tableau.columns[2][0];
+  const srcDesc = { type: 'tableau', index: 2, cardIndex: 0 };
+  app._handleTap(c.x + 5, c.y + 5, srcDesc, [c]);
+  assert(app.selectedCards !== null, 'card selected');
+  app._handleTap(c.x + 5, c.y + 5, srcDesc, [c]);
+  assert(app.selectedCards === null, 'tapping the same card again deselects');
+});
+
+test('double-tap sends a tableau Ace to the foundation', () => {
+  app._handleScreenAction('startEasy');
+  const g = app.game;
+  const fu = (s, r) => { const c = new Card(s, r); c.faceUp = true; return c; };
+  g.tableau.columns[0] = [fu('clubs', 'A')];
+  g.foundation.piles = [[], [], [], []];
+  app._positionCards();
+  const ace = g.tableau.columns[0][0];
+  app._onDoubleTap({ x: ace.x + 5, y: ace.y + 5 });
+  assert(g.foundation.totalCards() === 1, 'double-tap auto-moved the Ace to a foundation');
+});
+
+test('toast system queues, renders and expires', () => {
+  app._handleScreenAction('startEasy');
+  app._toasts = [];
+  app._showToast('Test toast', { duration: 0.5 });
+  assert(app._toasts.length === 1, 'toast is queued');
+  app._render(0.016); // renders without throwing
+  for (let i = 0; i < 20; i++) app._update(0.05);
+  assert(app._toasts.length === 0, 'toast expires after its duration');
+});
+
+test('daily reward can be claimed once per day and then disables', () => {
+  if (app.saveManager.delete) app.saveManager.delete('solitaire_daily_reward');
+  assert(app._isDailyRewardAvailable() === true, 'reward available before claiming');
+  app._claimDailyReward();
+  assert(app._isDailyRewardAvailable() === false, 'reward no longer available after claiming');
+});
+
+test('invalid drag triggers a red flash that clears', () => {
+  app._handleScreenAction('startEasy');
+  const g = app.game;
+  const fu = (s, r) => { const c = new Card(s, r); c.faceUp = true; return c; };
+  const card = fu('spades', '5');
+  app._triggerInvalidFlash([card]);
+  assert(app._invalidFlash && app._invalidFlash.rects.length === 1, 'invalid flash state set');
+  app._render(0.016); // renders without throwing
+  for (let i = 0; i < 60 && app._invalidFlash; i++) app._update(0.05);
+  assert(app._invalidFlash === null, 'invalid flash clears after its duration');
 });
 
 // ---------------------------------------------------------------------------

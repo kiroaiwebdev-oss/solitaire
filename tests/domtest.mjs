@@ -626,7 +626,7 @@ const __handlesAchCat = /startsWith\('achCat_'\)/.test(__mainSrc);
 const __fakeRenderer = { logicalWidth: 800, logicalHeight: 600, ctx: makeCtx() };
 const __screens = new Screens(__fakeRenderer, null);
 const __SCREEN_NAMES = ['loading', 'mainMenu', 'modeSelect', 'settings', 'statistics',
-  'achievements', 'dailyChallenge', 'pause', 'win', 'gameOver'];
+  'achievements', 'dailyChallenge', 'howToPlay', 'pause', 'win', 'gameOver'];
 
 test('every ScreenButton action produced by _buildButtons is handled in main.js', () => {
   for (const screen of __SCREEN_NAMES) {

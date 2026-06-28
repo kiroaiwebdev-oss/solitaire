@@ -73,6 +73,15 @@ class App {
     this.isDailyChallenge = false;
     this.deferredInstallPrompt = null;
 
+    // Hint highlight, tap-to-move selection, toasts, invalid-move flash
+    this.hint = { active: false, time: 0, duration: 1.8, data: null, isStock: false };
+    this.selectedSource = null;
+    this.selectedCards = null;
+    this._toasts = [];
+    this._invalidFlash = null;
+    this._pointerDown = null;
+    this._htpReturn = 'mainMenu';
+
     // Stats
     this.stats = this._loadStats();
     this.screens.setStats(this.stats);
@@ -126,7 +135,8 @@ class App {
         streak: this.dailyChallenge.getStreak(),
         completed: this.dailyChallenge.isCompleted(),
         calendar: this.dailyChallenge.getCalendarMonth ? this.dailyChallenge.getCalendarMonth(new Date().getFullYear(), new Date().getMonth()) : [],
-        totalCompleted: this.dailyChallenge.totalCompleted || 0
+        totalCompleted: this.dailyChallenge.totalCompleted || 0,
+        rewardAvailable: this._isDailyRewardAvailable ? this._isDailyRewardAvailable() : false
       });
     }
     // Push achievements data
@@ -258,6 +268,7 @@ class App {
   _onDoubleTap(coords) {
     if (!this.gameActive || this.game.state !== GAME_STATES.PLAYING) return;
     this._ensureAudio();
+    this._clearSelection();
     // Resolve tap coordinates to the card at that position
     const card = this._findCardAt(coords.x, coords.y);
     if (card && card.faceUp && this.game.autoMoveToFoundation) {
@@ -291,7 +302,7 @@ class App {
     switch (e.action) {
       case 'undo': this.game.undo(); this.usedUndoThisGame = true; this._positionCards(); break;
       case 'redo': if (this.game.redo) this.game.redo(); this._positionCards(); break;
-      case 'hint': if (this.game.getNextHint) this.game.getNextHint(); break;
+      case 'hint': this._activateHint(); break;
       case 'newGame': this._handleScreenAction('modeSelect'); break;
       case 'autoComplete': if (this.game.canAutoComplete && this.game.canAutoComplete()) this.game.startAutoComplete(); break;
       case 'pause':
@@ -333,6 +344,10 @@ class App {
     this.isDailyChallenge = options.isDaily || false;
     this.screens.hide();
     this.particles.clear();
+    this.hint.active = false;
+    this._clearSelection();
+    this._invalidFlash = null;
+    this._toasts = [];
 
     const coachSeen = this.saveManager.load(SAVE_KEY_COACH);
     if (!coachSeen) { this.screens.showCoachMarks(); this.saveManager.save(SAVE_KEY_COACH, true); }
@@ -411,15 +426,23 @@ class App {
     if (!this.gameActive || this.game.state !== GAME_STATES.PLAYING) return;
 
     const { x, y } = coords;
+    // Record pointer-down for tap-vs-drag discrimination on pointer-up.
+    this._pointerDown = { x, y, t: performance.now() };
+
     if (this.hud.isInHudArea(x, y)) {
       const hudAction = this.hud.handleClick(x, y);
-      if (hudAction) { this.audio.play('buttonClick'); this._handleHudAction(hudAction); return; }
+      if (hudAction) { this.audio.play('buttonClick'); this._handleHudAction(hudAction); this._pointerDown = null; return; }
     }
+
+    // A double-tap fired on this same pointerdown (auto-move handled in
+    // _onDoubleTap). Skip starting a drag so it isn't disturbed.
+    if (this.input.doubleTapped) { this._pointerDown = null; return; }
 
     const layout = this.layout;
     const stockX = layout.marginX;
     const stockY = layout.topRowY;
     if (x >= stockX && x <= stockX + layout.cardWidth && y >= stockY && y <= stockY + layout.cardHeight) {
+      this._clearSelection();
       this.game.drawFromStock();
       this._positionCards();
       return;
@@ -479,8 +502,40 @@ class App {
       return;
     }
 
-    if (!this.game.drag.active) return;
     const { x, y } = coords;
+    const down = this._pointerDown;
+    this._pointerDown = null;
+
+    // A double-tap already handled the action on pointerdown.
+    if (this.input.doubleTapped) {
+      if (this.game.drag.active) this.game.drag.end();
+      return;
+    }
+
+    // Determine whether this gesture was a tap (small movement) vs a drag.
+    const movedDist = down ? Math.hypot(x - down.x, y - down.y) : Infinity;
+    const isTap = down && movedDist < 12;
+
+    if (this.game.drag.active && isTap) {
+      // Treat as a tap: return the picked-up card and route through tap-to-move.
+      const source = this.game.drag.source;
+      const cards = this.game.drag.cards;
+      // Restore the cards to their origin without the error sound.
+      this.game.drag.snapBack();
+      this._handleTap(x, y, source, cards);
+      this._positionCards();
+      return;
+    }
+
+    if (!this.game.drag.active) {
+      // No card under the pointer (e.g. empty column / waste-empty): still allow
+      // tap-to-move to complete onto an empty destination, or to deselect.
+      if (isTap) { this._handleTap(x, y, null, null); }
+      return;
+    }
+
+    // --- Real drag-and-drop drop resolution ---
+    this._clearSelection();
     const layout = this.layout;
     const cards = this.game.drag.cards;
     const source = this.game.drag.source;
@@ -522,10 +577,20 @@ class App {
     }
 
     if (!moved) {
+      this._triggerInvalidFlash(cards);
       this.game.drag.snapBack();
       if (this.audio) this.audio.play('error');
     }
     this._positionCards();
+  }
+
+  /** Start a brief red flash on the given cards to signal an invalid move. */
+  _triggerInvalidFlash(cards) {
+    this._invalidFlash = {
+      time: 0,
+      duration: 0.45,
+      rects: cards.map(c => ({ x: c.x, y: c.y }))
+    };
   }
 
   _handleSliderAction(result) {
@@ -567,6 +632,18 @@ class App {
         const fx = this._getFoundationX(target.index);
         const fy = this._getFoundationY();
         this.particles.emit('foundationComplete', fx + this.layout.cardWidth / 2, fy + this.layout.cardHeight / 2, 10);
+      }
+      // Combo/streak feedback for rapid consecutive foundation moves.
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      if (this._lastFoundationTime && now - this._lastFoundationTime < 2600) {
+        this._foundationCombo = (this._foundationCombo || 1) + 1;
+      } else {
+        this._foundationCombo = 1;
+      }
+      this._lastFoundationTime = now;
+      if (this._foundationCombo >= 3) {
+        this._showToast('Combo x' + this._foundationCombo + '!', { icon: '\u26A1', color: '#7affc0', duration: 1.4 });
+        if (this.audio) this.audio.play('streakBonus');
       }
       this.game._checkWin();
     } else if (target.type === 'tableau') {
@@ -614,6 +691,7 @@ class App {
     this.hud = new HUD(this.game, this.renderer);
     this._computeLayout(); this._positionCards();
     this.gameActive = true; this.showingWinAnim = false; this.usedUndoThisGame = false; this.isDailyChallenge = false;
+    this.hint.active = false; this._clearSelection(); this._invalidFlash = null; this._toasts = [];
     this.screens.hide();
     this.saveManager.clearGameState(); this.screens.setHasSavedGame(false);
     return true;
@@ -628,6 +706,23 @@ class App {
       case 'statistics': this.screens.show('statistics'); break;
       case 'achievements': this.screens.show('achievements'); break;
       case 'dailyChallenge': this.screens.show('dailyChallenge'); break;
+      case 'howToPlay':
+        this._htpReturn = (this.screens.activeScreen === 'pause') ? 'pause' : 'mainMenu';
+        this.screens.howToPlayPage = 0;
+        this.screens.show('howToPlay');
+        break;
+      case 'htpNext':
+        this.screens.howToPlayPage = Math.min(this.screens.howToPlayPage + 1, this.screens.howToPlayPageCount - 1);
+        this.screens._buildButtons();
+        if (this.audio) this.audio.play('buttonClick');
+        break;
+      case 'htpPrev':
+        this.screens.howToPlayPage = Math.max(this.screens.howToPlayPage - 1, 0);
+        this.screens._buildButtons();
+        if (this.audio) this.audio.play('buttonClick');
+        break;
+      case 'htpClose': this.screens.show(this._htpReturn || 'mainMenu'); break;
+      case 'claimDailyReward': this._claimDailyReward(); break;
       case 'startEasy': this._startNewGame(false, { drawCount: 1 }); break;
       case 'startMedium': this._startNewGame(true, { drawCount: 1 }); break;
       case 'startHard': this._startNewGame(false, { drawCount: 3 }); break;
@@ -723,9 +818,308 @@ class App {
     switch (action) {
       case 'undo': this.game.undo(); this.usedUndoThisGame = true; this._positionCards(); break;
       case 'redo': if (this.game.redo) this.game.redo(); this._positionCards(); break;
-      case 'hint': if (this.game.getNextHint) this.game.getNextHint(); break;
+      case 'hint': this._activateHint(); break;
       case 'menu': this.game.state = GAME_STATES.PAUSED; this.screens.show('pause'); break;
       case 'autoComplete': this.game.startAutoComplete(); break;
+    }
+  }
+
+  // --- Hint Highlight System ---
+
+  /**
+   * Activate a hint: compute the next suggested move and highlight it on the
+   * board with a pulsing golden glow + sparkle + sound. If no move exists,
+   * show a toast and offer the stock pile as the hint.
+   */
+  _activateHint() {
+    if (!this.gameActive || this.game.state !== GAME_STATES.PLAYING) return;
+    this._ensureAudio();
+    this._clearSelection();
+    const hint = this.game.getNextHint ? this.game.getNextHint() : null;
+
+    if (!hint) {
+      // No tableau/foundation move available.
+      const stockHasCards = !this.game.stock.isEmpty() || !this.game.stock.wasteEmpty();
+      this.hint = {
+        active: true, time: 0, duration: 1.8,
+        data: null, isStock: stockHasCards
+      };
+      if (stockHasCards) {
+        this._showToast('No moves \u2014 try drawing from the deck', { icon: '\u267B' });
+      } else {
+        this._showToast('No more moves available', { icon: '\u26A0' });
+      }
+      this.audio.play('hint');
+      return;
+    }
+
+    this.hint = { active: true, time: 0, duration: 1.8, data: hint, isStock: false };
+    this.audio.play('hint');
+    if (!this.settings.reducedMotion && hint.cards && hint.cards[0]) {
+      const c = hint.cards[0];
+      this.particles.emit('foundationComplete',
+        c.x + this.layout.cardWidth / 2, c.y + this.layout.cardHeight / 2, 8);
+    }
+  }
+
+  /** Compute the destination rectangle for a hint's `to` descriptor. */
+  _getHintTargetRect(to) {
+    const layout = this.layout;
+    if (!to) return null;
+    if (to.type === 'foundation') {
+      return { x: this._getFoundationX(to.index), y: this._getFoundationY(), w: layout.cardWidth, h: layout.cardHeight };
+    }
+    if (to.type === 'tableau') {
+      const col = to.col;
+      const colX = this._getTableauX(col);
+      const column = this.game.tableau.columns[col];
+      let y = layout.tableauY;
+      if (column.length > 0) { y = column[column.length - 1].y; }
+      return { x: colX, y, w: layout.cardWidth, h: layout.cardHeight };
+    }
+    return null;
+  }
+
+  _renderHintHighlight(ctx) {
+    if (!this.hint || !this.hint.active) return;
+    const t = this.hint.time / this.hint.duration;
+    const fade = t > 0.8 ? (1 - t) / 0.2 : 1; // fade out in last 20%
+    const pulse = 0.5 + 0.5 * Math.sin(this.hint.time * 8);
+    const layout = this.layout;
+    const r = Math.min(layout.cardWidth * 0.08, 6);
+
+    const drawGlowRect = (x, y, w, h, color) => {
+      ctx.save();
+      ctx.globalAlpha = fade * (0.5 + 0.5 * pulse);
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 12 + pulse * 16;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5 + pulse * 1.5;
+      this.renderer._roundedRectPath(ctx, x - 2, y - 2, w + 4, h + 4, r);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const gold = '#ffd24a';
+
+    if (this.hint.isStock) {
+      // Highlight the stock pile.
+      drawGlowRect(layout.marginX, layout.topRowY, layout.cardWidth, layout.cardHeight, gold);
+      return;
+    }
+
+    const hint = this.hint.data;
+    if (!hint) return;
+
+    // Source card(s) — use their live positions.
+    if (hint.cards) {
+      for (const card of hint.cards) {
+        drawGlowRect(card.x, card.y, layout.cardWidth, layout.cardHeight, gold);
+      }
+    }
+    // Destination pile.
+    const target = this._getHintTargetRect(hint.to);
+    if (target) drawGlowRect(target.x, target.y, target.w, target.h, '#7affc0');
+  }
+
+  // --- Daily Reward ---
+
+  _todayStamp() {
+    const d = new Date();
+    return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  }
+
+  _isDailyRewardAvailable() {
+    const last = this.saveManager.load('solitaire_daily_reward');
+    return !last || last.date !== this._todayStamp();
+  }
+
+  _claimDailyReward() {
+    if (!this._isDailyRewardAvailable()) {
+      this._showToast('Daily reward already claimed today', { icon: '\u2714' });
+      return;
+    }
+    this._ensureAudio();
+    const streak = this.dailyChallenge.getStreak ? this.dailyChallenge.getStreak() : 0;
+    const reward = 50 + Math.min(streak, 7) * 10; // scales a little with streak
+    if (this.progression.addCurrency) this.progression.addCurrency(reward);
+    this.saveManager.save('solitaire_daily_reward', { date: this._todayStamp() });
+    this._saveAllState();
+    this._showToast('Daily reward: +' + reward + ' coins', { icon: '\uD83C\uDF81', color: '#ffd24a', duration: 3 });
+    this.audio.play('levelUp');
+    if (!this.settings.reducedMotion) {
+      this.particles.emit('levelUp', this.renderer.logicalWidth / 2, this.renderer.logicalHeight * 0.25, 14);
+    }
+    // Refresh the daily screen so the button disables.
+    this._syncScreenState();
+    if (this.screens.activeScreen === 'dailyChallenge') this.screens._buildButtons();
+  }
+
+  // --- Toast / Notification System ---
+
+  _showToast(text, opts = {}) {
+    if (!this._toasts) this._toasts = [];
+    this._toasts.push({
+      text,
+      icon: opts.icon || '',
+      color: opts.color || '#d4af37',
+      time: 0,
+      duration: opts.duration || 2.6
+    });
+    // Cap concurrent toasts.
+    if (this._toasts.length > 4) this._toasts.shift();
+  }
+
+  _updateToasts(dt) {
+    if (!this._toasts || this._toasts.length === 0) return;
+    for (let i = this._toasts.length - 1; i >= 0; i--) {
+      this._toasts[i].time += dt;
+      if (this._toasts[i].time >= this._toasts[i].duration) this._toasts.splice(i, 1);
+    }
+  }
+
+  _renderToasts(ctx) {
+    if (!this._toasts || this._toasts.length === 0) return;
+    const w = this.renderer.logicalWidth;
+    const fontSize = Math.min(w * 0.035, 15);
+    const padX = 16;
+    const toastH = fontSize + 22;
+    let baseY = this.renderer.logicalHeight * 0.16;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < this._toasts.length; i++) {
+      const toast = this._toasts[i];
+      const t = toast.time / toast.duration;
+      let alpha = 1;
+      if (t < 0.1) alpha = t / 0.1;
+      else if (t > 0.8) alpha = (1 - t) / 0.2;
+      const label = (toast.icon ? toast.icon + '  ' : '') + toast.text;
+      ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
+      const textW = ctx.measureText(label).width;
+      const boxW = Math.min(textW + padX * 2, w * 0.9);
+      const boxX = (w - boxW) / 2;
+      const boxY = baseY + i * (toastH + 8);
+      ctx.globalAlpha = alpha * 0.95;
+      ctx.fillStyle = 'rgba(12,28,18,0.95)';
+      this.renderer._roundedRectPath(ctx, boxX, boxY, boxW, toastH, 10);
+      ctx.fill();
+      ctx.strokeStyle = toast.color;
+      ctx.globalAlpha = alpha * 0.6;
+      ctx.lineWidth = 1.5;
+      this.renderer._roundedRectPath(ctx, boxX, boxY, boxW, toastH, 10);
+      ctx.stroke();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(label, w / 2, boxY + toastH / 2);
+    }
+    ctx.restore();
+  }
+
+  /** Drain queued achievement unlock notifications into toasts. */
+  _drainAchievementNotifications() {
+    if (!this.achievements || !this.achievements.hasNotifications) return;
+    while (this.achievements.hasNotifications()) {
+      const notif = this.achievements.popNotification();
+      if (!notif) break;
+      const name = notif.name || notif.title || notif.id || 'Achievement';
+      this._showToast('Achievement: ' + name, { icon: '\uD83C\uDFC6', color: '#ffd24a', duration: 3.2 });
+      this.audio.play('achievementUnlock');
+      if (!this.settings.reducedMotion) {
+        this.particles.emit('achievementUnlock', this.renderer.logicalWidth / 2, this.renderer.logicalHeight * 0.2, 24);
+      }
+    }
+  }
+
+  // --- Tap-to-Move ---
+
+  _clearSelection() {
+    if (this.selectedCards) {
+      for (const c of this.selectedCards) { c.glowing = false; }
+    }
+    this.selectedSource = null;
+    this.selectedCards = null;
+  }
+
+  _setSelection(source, cards) {
+    this._clearSelection();
+    this.selectedSource = source;
+    this.selectedCards = cards;
+    for (const c of cards) { c.glowing = true; c.glowColor = '#4af0c0'; }
+    this.audio.play('buttonClick');
+  }
+
+  /** Resolve the drop target (foundation/tableau) at a screen coordinate. */
+  _findTargetAt(x, y) {
+    const layout = this.layout;
+    for (let p = 0; p < 4; p++) {
+      const fx = this._getFoundationX(p);
+      const fy = this._getFoundationY();
+      if (x >= fx && x <= fx + layout.cardWidth && y >= fy && y <= fy + layout.cardHeight) {
+        return { type: 'foundation', index: p };
+      }
+    }
+    for (let col = 0; col < 7; col++) {
+      const colX = this._getTableauX(col);
+      const column = this.game.tableau.columns[col];
+      let colBottom = layout.tableauY + layout.cardHeight;
+      if (column.length > 0) { colBottom = column[column.length - 1].y + layout.cardHeight; }
+      if (x >= colX && x <= colX + layout.cardWidth && y >= layout.tableauY - 10 && y <= colBottom + 30) {
+        return { type: 'tableau', index: col };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Handle a tap (as opposed to a drag). Implements tap-to-move: tap a movable
+   * card to select it, then tap a valid destination to move it there.
+   * @param {number} x
+   * @param {number} y
+   * @param {object|null} tappedSource - drag source descriptor if a card was under the tap
+   * @param {import('./game/card.js').Card[]|null} tappedCards
+   */
+  _handleTap(x, y, tappedSource, tappedCards) {
+    if (!this.gameActive || this.game.state !== GAME_STATES.PLAYING || this.screens.isActive()) return;
+
+    // If we already have a selection, see if the tap lands on a valid target.
+    if (this.selectedSource && this.selectedCards && this.selectedCards.length) {
+      const target = this._findTargetAt(x, y);
+      if (target) {
+        const first = this.selectedCards[0];
+        let valid = false;
+        if (target.type === 'foundation' && this.selectedCards.length === 1) {
+          valid = this.game.foundation.canPlace(first, target.index);
+        } else if (target.type === 'tableau') {
+          // Don't allow dropping onto the same column it came from.
+          const sameCol = this.selectedSource.type === 'tableau' && this.selectedSource.index === target.index;
+          valid = !sameCol && this.game.tableau.canPlace(first, target.index);
+        }
+        if (valid) {
+          const source = this.selectedSource;
+          const cards = this.selectedCards;
+          this._clearSelection();
+          this._executeDrop(source, cards, target);
+          this._positionCards();
+          this.game._checkWin && this.game._checkWin();
+          return;
+        }
+      }
+    }
+
+    // Otherwise (re)select the tapped card if it's movable.
+    if (tappedCards && tappedCards.length) {
+      // Tapping the same already-selected source deselects it.
+      if (this.selectedSource && tappedSource &&
+          this.selectedSource.type === tappedSource.type &&
+          this.selectedSource.index === tappedSource.index &&
+          this.selectedSource.cardIndex === tappedSource.cardIndex) {
+        this._clearSelection();
+      } else {
+        this._setSelection(tappedSource, tappedCards);
+      }
+    } else {
+      this._clearSelection();
     }
   }
 
@@ -733,6 +1127,19 @@ class App {
     this.screens.update(dt);
     this.particles.update(dt);
     this.animations.update(dt);
+    this._updateToasts(dt);
+    this._drainAchievementNotifications();
+
+    // Hint highlight timer
+    if (this.hint && this.hint.active) {
+      this.hint.time += dt;
+      if (this.hint.time >= this.hint.duration) this.hint.active = false;
+    }
+    // Invalid-move flash timer
+    if (this._invalidFlash) {
+      this._invalidFlash.time += dt;
+      if (this._invalidFlash.time >= this._invalidFlash.duration) this._invalidFlash = null;
+    }
 
     if (!this.gameActive) { this.input.endFrame(); return; }
 
@@ -745,6 +1152,12 @@ class App {
 
     if (this.showingWinAnim) {
       this.game.updateWinAnimation(dt, this.renderer.logicalWidth, this.renderer.logicalHeight, this.layout.cardWidth, this.layout.cardHeight);
+      // Periodic firework bursts over the celebration.
+      if (!this.settings.reducedMotion && Math.random() < dt * 3) {
+        const w = this.renderer.logicalWidth;
+        const h = this.renderer.logicalHeight;
+        this.particles.emit('achievementUnlock', Math.random() * w, Math.random() * h * 0.55, 18);
+      }
     }
     if (this.game.autoCompleting) this._positionCards();
     if (this.game.state === GAME_STATES.LOST && !this.screens.isActive()) {
@@ -776,6 +1189,7 @@ class App {
 
     if (!this.gameActive) {
       this.screens.render();
+      this._renderToasts(ctx);
       return;
     }
 
@@ -783,6 +1197,7 @@ class App {
       this._renderWinAnimation(ctx);
       this.hud.render();
       if (this.screens.isActive()) this.screens.render();
+      this._renderToasts(ctx);
       return;
     }
 
@@ -854,6 +1269,17 @@ class App {
       }
     }
 
+    // Drop-zone highlights while dragging
+    if (this.game.drag.active && this.game.drag.cards.length > 0) {
+      this._renderDropZones(ctx);
+    }
+
+    // Hint highlight (pulsing glow on suggested move)
+    this._renderHintHighlight(ctx);
+
+    // Invalid-move red flash
+    this._renderInvalidFlash(ctx);
+
     // Dragged cards
     if (this.game.drag.active) {
       for (const card of this.game.drag.cards) card.render(ctx, layout.cardWidth, layout.cardHeight);
@@ -864,6 +1290,65 @@ class App {
 
     // Screen overlay
     if (this.screens.isActive()) this.screens.render();
+
+    // Toasts (always on top)
+    this._renderToasts(ctx);
+  }
+
+  _renderDropZones(ctx) {
+    const layout = this.layout;
+    const first = this.game.drag.cards[0];
+    const source = this.game.drag.source;
+    const r = Math.min(layout.cardWidth * 0.08, 6);
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.006);
+    const drawZone = (x, y, color) => {
+      ctx.save();
+      ctx.globalAlpha = 0.35 + 0.3 * pulse;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 10 + pulse * 10;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
+      this.renderer._roundedRectPath(ctx, x - 1, y - 1, layout.cardWidth + 2, layout.cardHeight + 2, r);
+      ctx.stroke();
+      ctx.restore();
+    };
+    // Valid foundations (single card only)
+    if (this.game.drag.cards.length === 1) {
+      for (let p = 0; p < 4; p++) {
+        if (source && source.type === 'foundation' && source.index === p) continue;
+        if (this.game.foundation.canPlace(first, p)) {
+          drawZone(this._getFoundationX(p), this._getFoundationY(), '#7affc0');
+        }
+      }
+    }
+    // Valid tableau columns
+    for (let col = 0; col < 7; col++) {
+      if (source && source.type === 'tableau' && source.index === col) continue;
+      if (this.game.tableau.canPlace(first, col)) {
+        const column = this.game.tableau.columns[col];
+        const y = column.length > 0 ? column[column.length - 1].y : layout.tableauY;
+        drawZone(this._getTableauX(col), y, '#7affc0');
+      }
+    }
+  }
+
+  _renderInvalidFlash(ctx) {
+    if (!this._invalidFlash) return;
+    const layout = this.layout;
+    const t = this._invalidFlash.time / this._invalidFlash.duration;
+    const alpha = (1 - t) * (0.5 + 0.5 * Math.sin(t * 30));
+    const r = Math.min(layout.cardWidth * 0.08, 6);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, alpha) * 0.8;
+    ctx.strokeStyle = '#ff4444';
+    ctx.shadowColor = '#ff4444';
+    ctx.shadowBlur = 14;
+    ctx.lineWidth = 3;
+    for (const rect of this._invalidFlash.rects) {
+      this.renderer._roundedRectPath(ctx, rect.x - 1, rect.y - 1, layout.cardWidth + 2, layout.cardHeight + 2, r);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   _renderWinAnimation(ctx) {
@@ -887,18 +1372,49 @@ class App {
     this._feltCanvas.width = w; this._feltCanvas.height = h;
     const offCtx = this._feltCanvas.getContext('2d');
 
-    // Felt color based on settings
-    const feltColors = { green: '#0d2818', blue: '#0d1828', red: '#281018', purple: '#1a0d28', dark: '#0a0a0a', midnight: '#050a14' };
-    offCtx.fillStyle = feltColors[this.settings.tableFelt] || feltColors.green;
+    // Premium felt: two-tone palette per theme, radial light pool + vignette.
+    const feltPalettes = {
+      green:    ['#155a34', '#0d2818', '#061410'],
+      blue:     ['#173a63', '#0d1828', '#060e1a'],
+      red:      ['#5a1626', '#281018', '#160810'],
+      purple:   ['#341a52', '#1a0d28', '#0e0618'],
+      dark:     ['#1c1c28', '#0a0a0a', '#000000'],
+      midnight: ['#0d1630', '#050a14', '#01030a']
+    };
+    const pal = feltPalettes[this.settings.tableFelt] || feltPalettes.green;
+
+    // Base fill
+    offCtx.fillStyle = pal[1];
     offCtx.fillRect(0, 0, w, h);
 
-    // Subtle texture
-    offCtx.fillStyle = 'rgba(0,0,0,0.015)';
+    // Radial light pool from upper-centre (table spotlight)
+    const rg = offCtx.createRadialGradient(w * 0.5, h * 0.32, 10, w * 0.5, h * 0.5, Math.max(w, h) * 0.85);
+    rg.addColorStop(0, pal[0]);
+    rg.addColorStop(0.55, pal[1]);
+    rg.addColorStop(1, pal[2]);
+    offCtx.fillStyle = rg;
+    offCtx.fillRect(0, 0, w, h);
+
+    // Subtle woven texture
+    offCtx.fillStyle = 'rgba(255,255,255,0.018)';
     for (let gy = 0; gy < h; gy += 4) {
       for (let gx = 0; gx < w; gx += 4) {
         if ((gx + gy) % 8 === 0) offCtx.fillRect(gx, gy, 1, 1);
       }
     }
+    offCtx.fillStyle = 'rgba(0,0,0,0.025)';
+    for (let gy = 2; gy < h; gy += 4) {
+      for (let gx = 2; gx < w; gx += 4) {
+        if ((gx + gy) % 8 === 0) offCtx.fillRect(gx, gy, 1, 1);
+      }
+    }
+
+    // Vignette around the edges for depth
+    const vg = offCtx.createRadialGradient(w * 0.5, h * 0.5, Math.min(w, h) * 0.35, w * 0.5, h * 0.5, Math.max(w, h) * 0.75);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.45)');
+    offCtx.fillStyle = vg;
+    offCtx.fillRect(0, 0, w, h);
   }
 }
 
