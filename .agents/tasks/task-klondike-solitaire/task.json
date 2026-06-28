@@ -1,7 +1,14 @@
 {
   "task_id": "task-klondike-solitaire",
   "task_description": "Build a complete, production-ready Klondike Solitaire HTML5 web game with canvas rendering, drag-and-drop, scoring, timer, daily challenges, achievements, unlockable themes, platform adapters for monetization, and automated test harness. All assets programmatically generated - no external dependencies.",
-  "status": "in_progress",
+  "status": "completed",
   "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005"],
-  "blocked_reason": null
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "All 627 test assertions pass (185 selftest + 244 domtest + 198 sdk-probes). Build generates 5 platform zips successfully (~45KB each). Tests exercise real game logic (deck shuffling, move validation, scoring, win detection, progression math, daily seeds, achievement conditions, adapter interfaces) and would fail if implementations were reverted."
+  }
 }
