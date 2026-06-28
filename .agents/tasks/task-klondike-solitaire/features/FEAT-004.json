@@ -2,7 +2,7 @@
   "id": "FEAT-004",
   "type": "feat",
   "description": "Platform adapters, build system, and deployment. Creates the monetization-ready platform adapter seam with implementations for all 5 platforms, the build script that generates per-platform zips, and DEPLOY.md documentation.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Create src/platform/adapter.js - base PlatformAdapter class/interface with methods: init(), showBannerAd(), showInterstitialAd(), showRewardedAd(callback), gameplayStart(), gameplayStop(), happyTime(), saveData(key, data), loadData(key), isAdblocked(), muteAudio(), unmuteAudio(). All methods have safe no-op defaults.",
     "Create src/platform/sdkUtil.js - utility functions: waitForGlobal(name, timeout) polls for SDK global, safe(fn) wraps calls in try-catch with fallback, audioMuteHelper(audioContext, muted) for SDK-triggered mute, fallbackAdOverlay() shows a simple 'Continue in X seconds' overlay when ads blocked",
