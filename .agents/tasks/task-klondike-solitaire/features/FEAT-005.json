@@ -2,7 +2,7 @@
   "id": "FEAT-005",
   "type": "feat",
   "description": "Automated test harness (selftest + domtest + SDK probes), final polish, and integration verification. Creates comprehensive tests, ensures all systems work together, and verifies acceptance criteria.",
-  "status": "pending",
+  "status": "completed",
   "steps": [
     "Create tests/selftest.mjs - logic/unit test harness using only Node.js stdlib. Test modules: (1) Deck: 52 unique cards generated, shuffle produces different order, seeded shuffle is deterministic. (2) Tableau: valid move detection (alternating colors, descending rank), invalid moves rejected, Kings-only on empty column. (3) Foundation: Ace starts pile, same-suit ascending validated, invalid placements rejected. (4) Stock: draw-1 and draw-3 modes work correctly, recycle resets stock. (5) Scoring: correct points per move type, undo penalty applied. (6) Win detection: detects all-in-foundations state. (7) Daily seeds: same date produces same seed, different dates produce different seeds. (8) Progression: XP calculation correct, level thresholds work. (9) Achievements: condition checking works. (10) Save/load: serialize and deserialize game state correctly. (11) Platform detection: adapter registry returns correct adapter for each platform string. Include a simple test runner that reports pass/fail counts.",
     "Create tests/domtest.mjs - DOM/render test harness: uses Node.js with minimal DOM simulation (or validates file structure and module imports). Tests: (1) All source files exist at expected paths. (2) All ES module imports resolve (no broken imports). (3) index.html has required elements (canvas, script type=module, meta viewport, favicon). (4) styles.css has responsive breakpoints and CSS variables. (5) All screens defined in screens.js have enter/exit handling. (6) All buttons have click handlers. (7) Build output validation: each platform dir has index.html with SDK script.",
@@ -30,5 +30,5 @@
     "node tools/build.mjs - build completes and dist/ populated"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All tests pass: selftest.mjs (185), domtest.mjs (244), sdk-probes.mjs (198). Build generates 5 platform builds successfully. All adapters instantiate and methods are callable in Node.js without real SDKs. waitForGlobal requires globalThis.window to be set in Node.js test env. dist/ is gitignored."
 }

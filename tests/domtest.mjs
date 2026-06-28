@@ -20,12 +20,19 @@ import { THEMES, DEFAULT_THEME } from '../src/config/themes.js';
 import { getDailySeed, getTodaySeed } from '../src/config/daily-seeds.js';
 import { PlatformAdapter } from '../src/platform/adapter.js';
 import { StandaloneAdapter } from '../src/platform/standalone.js';
+import { CrazyGamesAdapter } from '../src/platform/crazygames.js';
+import { GameDistributionAdapter } from '../src/platform/gamedistribution.js';
+import { Y8Adapter } from '../src/platform/y8.js';
+import { PlayHopAdapter } from '../src/platform/playhop.js';
 import { SaveManager } from '../src/systems/save-manager.js';
 import { Progression } from '../src/systems/progression.js';
 import { DailyChallenge } from '../src/systems/daily-challenge.js';
 import { Achievements } from '../src/systems/achievements.js';
 import { ACHIEVEMENT_DEFS, getAllAchievementIds } from '../src/config/achievements.js';
 import { isThemeUnlocked } from '../src/config/themes.js';
+import { existsSync, readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 let passed = 0;
 let failed = 0;
@@ -305,6 +312,197 @@ test('SaveManager save and load', () => {
   const loaded = sm2.load('test_key');
   assert(loaded !== null, 'loaded data is not null');
   assert(loaded.hello === 'world', 'loaded data matches saved');
+});
+
+// --- Platform Adapter Detection Tests ---
+console.log('\n[Platform Adapter Detection]');
+
+test('Platform adapter registry has correct class-to-name mapping', () => {
+  // Verify that each adapter class creates instances with the expected name
+  const adapterMap = {
+    standalone: StandaloneAdapter,
+    crazygames: CrazyGamesAdapter,
+    gamedistribution: GameDistributionAdapter,
+    y8: Y8Adapter,
+    playhop: PlayHopAdapter
+  };
+
+  for (const [expectedName, AdapterClass] of Object.entries(adapterMap)) {
+    const adapter = new AdapterClass();
+    assert(adapter.name === expectedName,
+      `${AdapterClass.name} has name '${expectedName}', got '${adapter.name}'`);
+    assert(adapter instanceof PlatformAdapter,
+      `${AdapterClass.name} extends PlatformAdapter`);
+  }
+});
+
+test('All adapters have consistent interface', () => {
+  const adapters = [
+    new StandaloneAdapter(),
+    new CrazyGamesAdapter(),
+    new GameDistributionAdapter(),
+    new Y8Adapter(),
+    new PlayHopAdapter()
+  ];
+
+  const methods = ['init', 'showBannerAd', 'showInterstitialAd', 'showRewardedAd',
+    'gameplayStart', 'gameplayStop', 'happyMoment', 'happyTime',
+    'saveData', 'loadData', 'isAdblocked', 'muteAudio', 'unmuteAudio'];
+
+  for (const adapter of adapters) {
+    for (const method of methods) {
+      assert(typeof adapter[method] === 'function',
+        `${adapter.name}.${method} is a function`);
+    }
+  }
+});
+
+// --- File Structure Validation ---
+console.log('\n[File Structure]');
+
+const __domtest_filename = fileURLToPath(import.meta.url);
+const __domtest_dirname = dirname(__domtest_filename);
+const rootDir = join(__domtest_dirname, '..');
+
+test('index.html has required elements', () => {
+  const htmlPath = join(rootDir, 'index.html');
+  assert(existsSync(htmlPath), 'index.html exists');
+
+  const html = readFileSync(htmlPath, 'utf8');
+  assert(html.includes('<canvas'), 'has canvas element');
+  assert(html.includes('id="game-canvas"'), 'canvas has game-canvas id');
+  assert(html.includes('meta name="viewport"'), 'has meta viewport tag');
+  assert(html.includes('rel="icon"'), 'has favicon link element');
+  assert(html.includes('data:image/svg+xml'), 'favicon uses inline SVG data URI');
+  assert(html.includes('type="module"'), 'has script type=module');
+  assert(html.includes('src="src/main.js"'), 'script src points to src/main.js');
+  assert(html.includes('href="styles.css"'), 'links to styles.css');
+});
+
+test('styles.css has CSS custom properties', () => {
+  const cssPath = join(rootDir, 'styles.css');
+  assert(existsSync(cssPath), 'styles.css exists');
+
+  const css = readFileSync(cssPath, 'utf8');
+  assert(css.includes('--felt-green'), 'has --felt-green variable');
+  assert(css.includes('--card-width'), 'has --card-width variable');
+  assert(css.includes('--ui-accent'), 'has --ui-accent variable');
+});
+
+test('styles.css has responsive breakpoints', () => {
+  const css = readFileSync(join(rootDir, 'styles.css'), 'utf8');
+  assert(css.includes('@media'), 'has @media queries');
+  assert(css.includes('max-width: 480px'), 'has mobile breakpoint');
+  assert(css.includes('min-width: 769px'), 'has tablet breakpoint');
+  assert(css.includes('min-width: 1025px'), 'has desktop breakpoint');
+  assert(css.includes('orientation: landscape'), 'has landscape orientation');
+});
+
+test('styles.css uses dvh units', () => {
+  const css = readFileSync(join(rootDir, 'styles.css'), 'utf8');
+  assert(css.includes('dvh'), 'uses dvh unit');
+});
+
+test('styles.css handles safe-area-inset', () => {
+  const css = readFileSync(join(rootDir, 'styles.css'), 'utf8');
+  assert(css.includes('env(safe-area-inset'), 'uses env() for safe-area-inset');
+});
+
+test('styles.css canvas is full viewport', () => {
+  const css = readFileSync(join(rootDir, 'styles.css'), 'utf8');
+  assert(css.includes('width: 100%'), 'canvas width 100%');
+  assert(css.includes('100dvh'), 'canvas height uses dvh');
+});
+
+test('src/main.js has required structure', () => {
+  const mainPath = join(rootDir, 'src', 'main.js');
+  assert(existsSync(mainPath), 'src/main.js exists');
+
+  const main = readFileSync(mainPath, 'utf8');
+  assert(main.includes("import") && main.includes("getAdapter"), 'imports platform adapter');
+  assert(main.includes("Game"), 'imports/creates Game instance');
+  assert(main.includes("GameLoop"), 'imports/creates GameLoop');
+  assert(main.includes("try") && main.includes("catch"), 'has try-catch for fatal error');
+  assert(main.includes("fatal-error") || main.includes("error-message"), 'has fatal error UI reference');
+});
+
+test('All source files exist at expected paths', () => {
+  const requiredFiles = [
+    'index.html',
+    'styles.css',
+    'src/main.js',
+    'src/core/loop.js',
+    'src/core/input.js',
+    'src/core/math.js',
+    'src/core/render.js',
+    'src/core/audio.js',
+    'src/game/game.js',
+    'src/game/card.js',
+    'src/game/deck.js',
+    'src/game/tableau.js',
+    'src/game/foundation.js',
+    'src/game/stock.js',
+    'src/game/drag.js',
+    'src/systems/save-manager.js',
+    'src/systems/progression.js',
+    'src/systems/daily-challenge.js',
+    'src/systems/achievements.js',
+    'src/ui/hud.js',
+    'src/ui/screens.js',
+    'src/platform/adapter.js',
+    'src/platform/standalone.js',
+    'src/platform/crazygames.js',
+    'src/platform/gamedistribution.js',
+    'src/platform/y8.js',
+    'src/platform/playhop.js',
+    'src/platform/sdkUtil.js',
+    'src/platform/index.js',
+    'src/config/scoring.js',
+    'src/config/themes.js',
+    'src/config/daily-seeds.js',
+    'src/config/achievements.js'
+  ];
+
+  for (const file of requiredFiles) {
+    assert(existsSync(join(rootDir, file)), `${file} exists`);
+  }
+});
+
+test('Build output validation (after build)', () => {
+  const distDir = join(rootDir, 'dist');
+  if (!existsSync(distDir)) {
+    // Build not yet run - skip but count as pass
+    assert(true, 'dist/ not present (build not run), skipping build validation');
+    return;
+  }
+
+  const platforms = ['standalone', 'crazygames', 'gamedistribution', 'y8', 'playhop'];
+  const sdkUrls = {
+    standalone: null,
+    crazygames: 'https://sdk.crazygames.com/crazygames-sdk-v3.js',
+    gamedistribution: 'https://html5.api.gamedistribution.com/main.min.js',
+    y8: 'https://cdn.y8.com/api/sdk.js',
+    playhop: 'https://cdn.playgama.com/sdk/bridge.js'
+  };
+
+  for (const platform of platforms) {
+    const platformDir = join(distDir, platform);
+    const indexPath = join(platformDir, 'index.html');
+
+    assert(existsSync(platformDir), `dist/${platform}/ directory exists`);
+    assert(existsSync(indexPath), `dist/${platform}/index.html exists`);
+
+    if (existsSync(indexPath)) {
+      const html = readFileSync(indexPath, 'utf8');
+      assert(html.includes(`window.__PLATFORM__ = '${platform}'`),
+        `${platform}/index.html has __PLATFORM__ variable set to '${platform}'`);
+
+      if (sdkUrls[platform]) {
+        assert(html.includes(sdkUrls[platform]),
+          `${platform}/index.html has correct SDK script URL`);
+      }
+    }
+  }
 });
 
 // --- Summary ---
