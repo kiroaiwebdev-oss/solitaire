@@ -383,7 +383,7 @@ export class Screens {
       }
       case 'dailyChallenge': {
         const startY = h * 0.55;
-        const dailyLabel = this.dailyData.completed ? 'Completed!' : 'Start Today's Challenge';
+        const dailyLabel = this.dailyData.completed ? 'Completed!' : "Start Today's Challenge";
         const btn = new ScreenButton(dailyLabel, 'startDaily', { enabled: !this.dailyData.completed });
         btn.x = cx; btn.y = startY; btn.width = btnW; btn.height = btnH;
         this.buttons.push(btn);

@@ -32,6 +32,10 @@ import { ACHIEVEMENT_DEFS, getAllAchievementIds } from '../src/config/achievemen
 import { isThemeUnlocked } from '../src/config/themes.js';
 import { ParticleSystem } from '../src/ui/particles.js';
 import { AnimationManager } from '../src/ui/animations.js';
+import { Screens } from '../src/ui/screens.js';
+import { HUD } from '../src/ui/hud.js';
+import { checkAllImports } from './import-check.mjs';
+import { installDOM, makeCtx } from './dom-harness.mjs';
 import { existsSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -589,6 +593,70 @@ test('AnimationManager tween lifecycle', () => {
   am.update(0.6); // past duration
   assert(target.x === 100, 'target x at final value after complete');
   assert(am.isAnimating() === false, 'not animating after complete');
+});
+
+// --- ES Module Link-Time Import Check (regression guard for syntax errors) ---
+// This is the gap that let the "Start Today's Challenge" apostrophe bug ship:
+// the prior harness used static imports and never referenced screens.js, so a
+// link-time syntax error went undetected. We now import EVERY src/*.js through
+// the real ES module loader.
+console.log('\n[ES Module Import Check]');
+
+// Install the browser surface so main.js can boot cleanly during the import scan.
+installDOM({ width: 800, height: 600 });
+
+const __importResult = await checkAllImports();
+test('every src/*.js links through the real ES module loader', () => {
+  if (__importResult.failures.length) {
+    for (const f of __importResult.failures) console.error(`    ${f.file}: ${f.error}`);
+  }
+  assert(__importResult.failures.length === 0,
+    `all ${__importResult.checked} modules import without link-time syntax errors`);
+  assert(__importResult.checked >= 30, `scanned a meaningful number of modules (${__importResult.checked})`);
+});
+
+// --- Dead Button Audit (every button action must have a handler) ---
+console.log('\n[Dead Button Audit]');
+
+const __mainSrc = readFileSync(join(rootDir, 'src', 'main.js'), 'utf8');
+const __handledCases = new Set();
+for (const m of __mainSrc.matchAll(/case\s+'([^']+)'\s*:/g)) __handledCases.add(m[1]);
+const __handlesAchCat = /startsWith\('achCat_'\)/.test(__mainSrc);
+
+const __fakeRenderer = { logicalWidth: 800, logicalHeight: 600, ctx: makeCtx() };
+const __screens = new Screens(__fakeRenderer, null);
+const __SCREEN_NAMES = ['loading', 'mainMenu', 'modeSelect', 'settings', 'statistics',
+  'achievements', 'dailyChallenge', 'pause', 'win', 'gameOver'];
+
+test('every ScreenButton action produced by _buildButtons is handled in main.js', () => {
+  for (const screen of __SCREEN_NAMES) {
+    __screens.activeScreen = screen;
+    __screens._buildButtons();
+    for (const btn of __screens.buttons) {
+      const action = btn.action;
+      if (!action) continue;
+      const handled = __handledCases.has(action) || (action.startsWith('achCat_') && __handlesAchCat);
+      assert(handled, `screen "${screen}" button action "${action}" has a handler`);
+    }
+  }
+});
+
+test('every HUD action is handled in main.js', () => {
+  const game = new Game({ drawCount: 1, seed: 7 });
+  game.deal();
+  const hud = new HUD(game, __fakeRenderer);
+  const hudActions = hud.buttons.map(b => b.action).filter(Boolean);
+  assert(hudActions.length >= 4, `HUD exposes action buttons (${hudActions.length})`);
+  for (const action of hudActions) {
+    assert(__handledCases.has(action), `HUD action "${action}" has a handler`);
+  }
+});
+
+test('slider actions are handled by _handleSliderAction', () => {
+  const sliderBody = __mainSrc.slice(__mainSrc.indexOf('_handleSliderAction'));
+  for (const action of ['sfxVolume', 'musicVolume']) {
+    assert(sliderBody.includes(`case '${action}'`), `slider action "${action}" handled`);
+  }
 });
 
 // --- Summary ---
