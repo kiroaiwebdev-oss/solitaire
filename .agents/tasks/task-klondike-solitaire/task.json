@@ -9,6 +9,6 @@
     "tests": "pass",
     "test_quality": "pass",
     "docker_build": "skipped",
-    "summary": "All 627 test assertions pass (185 selftest + 244 domtest + 198 sdk-probes). Build generates 5 platform zips successfully (~45KB each). Tests exercise real game logic (deck shuffling, move validation, scoring, win detection, progression math, daily seeds, achievement conditions, adapter interfaces) and would fail if implementations were reverted."
+    "summary": "All 627 test assertions pass (185 selftest + 244 domtest + 198 sdk-probes). Build generates 5 platform zips (~47KB each). Total source size 296KB. Semantic review v2 verdict: APPROVED. 7 issues from v1 review all fixed. 2 remaining minor concerns (dual scoring paths, dead code) are non-blocking."
   }
 }
