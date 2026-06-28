@@ -7,6 +7,7 @@ import { createRng } from '../core/math.js';
 
 /**
  * Generate a standard 52-card deck.
+ * @returns {Card[]}
  */
 export function createDeck() {
   const cards = [];
@@ -33,7 +34,7 @@ export function shuffle(cards, rngFn = Math.random) {
 }
 
 /**
- * Create a shuffled deck with a seed (for daily challenges).
+ * Create a shuffled deck with a deterministic seed (for daily challenges/replays).
  * @param {number} seed
  * @returns {Card[]}
  */

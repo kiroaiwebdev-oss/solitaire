@@ -1,6 +1,8 @@
 /**
  * Game orchestrator: state machine, deal, update, render, move validation,
- * scoring, undo, auto-complete, win animation, timer.
+ * scoring, unlimited undo/redo, hint system, auto-complete with cascading
+ * animation, move history, replay data, multiple difficulties, scoring modes,
+ * win animation, timer.
  */
 
 import { createDeck, shuffle, createSeededDeck } from './deck.js';
@@ -13,10 +15,24 @@ import { SCORING } from '../config/scoring.js';
 
 export const GAME_STATES = {
   MENU: 'menu',
+  LOADING: 'loading',
   PLAYING: 'playing',
   PAUSED: 'paused',
   WON: 'won',
   LOST: 'lost'
+};
+
+export const DIFFICULTY = {
+  EASY: 'easy',       // draw-1, no timer
+  MEDIUM: 'medium',   // draw-1, 10 min timer
+  HARD: 'hard',       // draw-3, no timer
+  EXPERT: 'expert'    // draw-3, 5 min timer
+};
+
+export const SCORING_MODE = {
+  STANDARD: 'standard',
+  VEGAS: 'vegas',
+  NONE: 'none'
 };
 
 export class Game {
@@ -26,23 +42,82 @@ export class Game {
     this.foundation = new Foundation();
     this.stock = new Stock();
     this.drag = new DragSystem();
-    this.drawCount = options.drawCount || 1;
+
+    // Difficulty settings
+    this.difficulty = options.difficulty || DIFFICULTY.EASY;
+    this.scoringMode = options.scoringMode || SCORING_MODE.STANDARD;
+    this.drawCount = options.drawCount || this._getDrawCount();
+    this.hardMode = options.hardMode || this._isTimed();
+    this.hardModeTime = options.hardModeTime || this._getTimeLimit();
+
+    // Game state
     this.score = 0;
     this.moves = 0;
     this.timer = 0;
-    this.hardMode = options.hardMode || false;
-    this.hardModeTime = options.hardModeTime || 600; // 10 minutes
+    this.timerCountsDown = this._isTimed();
+    this.seed = options.seed || null;
+
+    // Unlimited undo/redo
+    this._undoStack = [];
+    this._redoStack = [];
+    this._maxUndoStates = 500;
+
+    // Legacy single undo (for backwards compatibility with tests)
     this.undoState = null;
-    this.winAnimationCards = [];
-    this.winAnimTime = 0;
+
+    // Move history (for replay)
+    this.moveHistory = [];
+
+    // Replay data
+    this.replayData = {
+      seed: this.seed,
+      difficulty: this.difficulty,
+      scoringMode: this.scoringMode,
+      drawCount: this.drawCount,
+      moves: []
+    };
+
+    // Hint system
+    this._hints = [];
+    this._currentHintIndex = 0;
+
+    // Auto-complete
     this.autoCompleting = false;
     this.autoCompleteTimer = 0;
-    this.seed = options.seed || null;
+    this.autoCompleteInterval = 0.1; // seconds between auto-complete moves
+
+    // Win animation
+    this.winAnimationCards = [];
+    this.winAnimTime = 0;
+
+    // Callbacks
     this.onScoreChange = options.onScoreChange || null;
     this.onWin = options.onWin || null;
     this.onLose = options.onLose || null;
     this.audio = options.audio || null;
+
+    // All cards reference
     this.allCards = [];
+
+    // Stats tracking for this game
+    this.usedUndo = false;
+    this.usedStock = false;
+    this.foundationHistory = []; // track when foundation was last at 0
+  }
+
+  _getDrawCount() {
+    if (this.difficulty === DIFFICULTY.HARD || this.difficulty === DIFFICULTY.EXPERT) return 3;
+    return 1;
+  }
+
+  _isTimed() {
+    return this.difficulty === DIFFICULTY.MEDIUM || this.difficulty === DIFFICULTY.EXPERT;
+  }
+
+  _getTimeLimit() {
+    if (this.difficulty === DIFFICULTY.MEDIUM) return 600; // 10 minutes
+    if (this.difficulty === DIFFICULTY.EXPERT) return 300; // 5 minutes
+    return Infinity;
   }
 
   deal() {
@@ -56,13 +131,35 @@ export class Game {
 
     this.tableau.deal(deck);
     this.stock.init(deck, this.drawCount);
-    this.score = 0;
+
+    // Initialize score based on scoring mode
+    if (this.scoringMode === SCORING_MODE.VEGAS) {
+      this.score = -52;
+    } else {
+      this.score = 0;
+    }
+
     this.moves = 0;
-    this.timer = 0;
+    this.timer = this.timerCountsDown ? this.hardModeTime : 0;
     this.state = GAME_STATES.PLAYING;
+    this._undoStack = [];
+    this._redoStack = [];
     this.undoState = null;
     this.winAnimationCards = [];
     this.autoCompleting = false;
+    this.moveHistory = [];
+    this.usedUndo = false;
+    this.usedStock = false;
+    this.foundationHistory = [];
+
+    // Update replay data
+    this.replayData = {
+      seed: this.seed,
+      difficulty: this.difficulty,
+      scoringMode: this.scoringMode,
+      drawCount: this.drawCount,
+      moves: []
+    };
 
     // Collect all cards
     this.allCards = [];
@@ -73,8 +170,10 @@ export class Game {
     for (const card of this.stock.waste) this.allCards.push(card);
   }
 
-  saveUndoState() {
-    this.undoState = {
+  // --- State Snapshots for Undo/Redo ---
+
+  _captureState() {
+    return {
       tableauCols: this.tableau.columns.map(col =>
         col.map(c => ({ suit: c.suit, rank: c.rank, faceUp: c.faceUp }))
       ),
@@ -84,18 +183,14 @@ export class Game {
       stockCards: this.stock.stock.map(c => ({ suit: c.suit, rank: c.rank, faceUp: c.faceUp })),
       wasteCards: this.stock.waste.map(c => ({ suit: c.suit, rank: c.rank, faceUp: c.faceUp })),
       score: this.score,
-      moves: this.moves
+      moves: this.moves,
+      recycleCount: this.stock.recycleCount
     };
   }
 
-  undo() {
-    if (!this.undoState) return false;
-    // Rebuild state from snapshot
-    const state = this.undoState;
-    const allCards = [...this.allCards];
-
+  _restoreState(state) {
     const findCard = (suit, rank) => {
-      return allCards.find(c => c.suit === suit && c.rank === rank);
+      return this.allCards.find(c => c.suit === suit && c.rank === rank);
     };
 
     // Clear all piles
@@ -144,13 +239,91 @@ export class Game {
       }
     }
 
-    this.score = Math.max(0, state.score + SCORING.UNDO_PENALTY);
+    this.score = state.score;
     this.moves = state.moves;
-    this.undoState = null;
+    this.stock.recycleCount = state.recycleCount || 0;
+  }
+
+  saveUndoState() {
+    const state = this._captureState();
+    this._undoStack.push(state);
+    if (this._undoStack.length > this._maxUndoStates) {
+      this._undoStack.shift();
+    }
+    // Clear redo stack on new action
+    this._redoStack = [];
+    // Also save as single undoState for backward compat
+    this.undoState = state;
+  }
+
+  undo() {
+    if (this._undoStack.length === 0 && !this.undoState) return false;
+
+    const state = this._undoStack.pop() || this.undoState;
+    if (!state) return false;
+
+    // Save current state to redo stack
+    this._redoStack.push(this._captureState());
+
+    this._restoreState(state);
+
+    // Apply undo penalty for standard scoring
+    if (this.scoringMode === SCORING_MODE.STANDARD) {
+      this.score = Math.max(0, this.score + SCORING.UNDO_PENALTY);
+    }
+
+    this.undoState = this._undoStack.length > 0 ? this._undoStack[this._undoStack.length - 1] : null;
+    this.usedUndo = true;
+
+    // Record in move history
+    this._recordMove('undo', null, null);
 
     if (this.audio) this.audio.play('undo');
     return true;
   }
+
+  redo() {
+    if (this._redoStack.length === 0) return false;
+
+    const state = this._redoStack.pop();
+    this._undoStack.push(this._captureState());
+    this._restoreState(state);
+
+    this._recordMove('redo', null, null);
+
+    if (this.audio) this.audio.play('redo');
+    return true;
+  }
+
+  /**
+   * Check how many undo states are available.
+   */
+  canUndo() {
+    return this._undoStack.length > 0 || this.undoState !== null;
+  }
+
+  /**
+   * Check if redo is available.
+   */
+  canRedo() {
+    return this._redoStack.length > 0;
+  }
+
+  // --- Move Recording ---
+
+  _recordMove(type, from, to, extra = {}) {
+    const move = {
+      type,
+      from,
+      to,
+      timestamp: this.timer,
+      ...extra
+    };
+    this.moveHistory.push(move);
+    this.replayData.moves.push(move);
+  }
+
+  // --- Moves ---
 
   drawFromStock() {
     if (this.state !== GAME_STATES.PLAYING) return;
@@ -159,19 +332,21 @@ export class Game {
     if (this.stock.isEmpty()) {
       if (!this.stock.wasteEmpty()) {
         this.stock.recycle();
-        this.score = Math.max(0, this.score - 20); // penalty for recycle
+        if (this.scoringMode === SCORING_MODE.STANDARD) {
+          this.score = Math.max(0, this.score + SCORING.RECYCLE_STOCK);
+        }
+        this._recordMove('recycle', 'waste', 'stock');
         if (this.audio) this.audio.play('cardShuffle');
       }
     } else {
       this.stock.draw();
+      this.usedStock = true;
+      this._recordMove('draw', 'stock', 'waste');
       if (this.audio) this.audio.play('cardFlip');
     }
     this.moves++;
   }
 
-  /**
-   * Try to move card(s) from waste to a target.
-   */
   moveWasteToTableau(colIndex) {
     const card = this.stock.topWaste();
     if (!card) return false;
@@ -180,8 +355,9 @@ export class Game {
     this.saveUndoState();
     this.stock.takeFromWaste();
     this.tableau.placeCard(colIndex, card);
-    this.score += 5;
+    this._addScore(SCORING.WASTE_TO_TABLEAU);
     this.moves++;
+    this._recordMove('wasteToTableau', 'waste', `tableau_${colIndex}`, { card: card.toString() });
     if (this.audio) this.audio.play('cardPlace');
     return true;
   }
@@ -195,8 +371,9 @@ export class Game {
     this.saveUndoState();
     this.stock.takeFromWaste();
     this.foundation.placeCard(pileIdx, card);
-    this.score += 10;
+    this._addScore(SCORING.WASTE_TO_FOUNDATION);
     this.moves++;
+    this._recordMove('wasteToFoundation', 'waste', `foundation_${pileIdx}`, { card: card.toString() });
     if (this.audio) this.audio.play('cardPlace');
     this._checkWin();
     return true;
@@ -211,8 +388,9 @@ export class Game {
     this.saveUndoState();
     this.tableau.removeSequence(colIndex, this.tableau.columns[colIndex].length - 1);
     this.foundation.placeCard(pileIdx, card);
-    this.score += 10;
+    this._addScore(SCORING.TABLEAU_TO_FOUNDATION);
     this.moves++;
+    this._recordMove('tableauToFoundation', `tableau_${colIndex}`, `foundation_${pileIdx}`, { card: card.toString() });
     if (this.audio) this.audio.play('cardPlace');
     this._checkWin();
     return true;
@@ -224,7 +402,7 @@ export class Game {
     if (seq.length === 0) return false;
     if (!this.tableau.canPlace(seq[0], toCol)) return false;
 
-    // Check if the card that will be exposed was face-down (before removal)
+    // Check if the card that will be exposed was face-down
     const col = this.tableau.columns[fromCol];
     const newTopIndex = cardIndex - 1;
     const willReveal = newTopIndex >= 0 && !col[newTopIndex].faceUp;
@@ -233,10 +411,17 @@ export class Game {
     this.tableau.removeSequence(fromCol, cardIndex);
     this.tableau.placeSequence(toCol, seq);
     this.moves++;
-    // Score for revealing a card (only if it was actually face-down)
+
+    // Score for revealing a card
     if (willReveal) {
-      this.score += 5;
+      this._addScore(SCORING.REVEAL_CARD);
     }
+
+    this._recordMove('tableauToTableau', `tableau_${fromCol}`, `tableau_${toCol}`, {
+      cardIndex,
+      cards: seq.map(c => c.toString()),
+      revealed: willReveal
+    });
     if (this.audio) this.audio.play('cardPlace');
     return true;
   }
@@ -249,16 +434,79 @@ export class Game {
     this.saveUndoState();
     this.foundation.removeTop(pileIndex);
     this.tableau.placeCard(colIndex, card);
-    this.score = Math.max(0, this.score - 15);
+    this._addScore(SCORING.FOUNDATION_TO_TABLEAU);
     this.moves++;
+    this._recordMove('foundationToTableau', `foundation_${pileIndex}`, `tableau_${colIndex}`, { card: card.toString() });
     if (this.audio) this.audio.play('cardPlace');
     return true;
   }
+
+  /**
+   * Double-tap auto-move: try to move a card to foundation.
+   * @param {import('./card.js').Card} card
+   * @returns {boolean}
+   */
+  autoMoveToFoundation(card) {
+    // Find where the card is
+    const tableauLoc = this.tableau.findCard(card);
+    if (tableauLoc) {
+      // Can only auto-move the top card of a column
+      const col = this.tableau.columns[tableauLoc.col];
+      if (tableauLoc.index === col.length - 1) {
+        return this.moveTableauToFoundation(tableauLoc.col);
+      }
+    }
+
+    // Check waste
+    const wasteTop = this.stock.topWaste();
+    if (wasteTop === card) {
+      return this.moveWasteToFoundation();
+    }
+
+    return false;
+  }
+
+  // --- Scoring ---
+
+  _addScore(amount) {
+    if (this.scoringMode === SCORING_MODE.NONE) return;
+
+    if (this.scoringMode === SCORING_MODE.VEGAS) {
+      // Vegas: only +5 for foundation moves
+      if (amount === SCORING.WASTE_TO_FOUNDATION || amount === SCORING.TABLEAU_TO_FOUNDATION) {
+        this.score += 5;
+      }
+      // No penalties in Vegas mode except recycle (handled separately)
+    } else {
+      // Standard scoring
+      this.score += amount;
+      if (this.score < 0) this.score = 0;
+    }
+
+    if (this.onScoreChange) this.onScoreChange(this.score);
+  }
+
+  /**
+   * Calculate time bonus at end of game (standard scoring only).
+   */
+  getTimeBonus() {
+    if (this.scoringMode !== SCORING_MODE.STANDARD) return 0;
+    if (this.timer <= 0) return 0;
+    if (this.timer < SCORING.TIME_BONUS_THRESHOLD) {
+      return Math.floor((SCORING.TIME_BONUS_THRESHOLD - this.timer) * SCORING.TIME_BONUS_MULTIPLIER);
+    }
+    return 0;
+  }
+
+  // --- Win Detection ---
 
   _checkWin() {
     if (this.foundation.isComplete()) {
       this.state = GAME_STATES.WON;
       this.winAnimTime = 0;
+      // Add time bonus
+      const timeBonus = this.getTimeBonus();
+      this.score += timeBonus;
       this._initWinAnimation();
       if (this.audio) this.audio.play('win');
       if (this.onWin) this.onWin(this.score, this.moves, this.timer);
@@ -267,7 +515,6 @@ export class Game {
 
   _initWinAnimation() {
     this.winAnimationCards = [];
-    // Create flying card data from foundation piles
     for (let p = 0; p < 4; p++) {
       const pile = this.foundation.piles[p];
       for (let i = pile.length - 1; i >= 0; i--) {
@@ -279,6 +526,8 @@ export class Game {
           vx: (Math.random() - 0.5) * 400,
           vy: -(Math.random() * 200 + 100),
           gravity: 600,
+          rotation: 0,
+          rotationSpeed: (Math.random() - 0.5) * 5,
           delay: (pile.length - 1 - i) * 0.08 + p * 0.3,
           launched: false,
           bounces: 0
@@ -301,6 +550,7 @@ export class Game {
       data.vy += data.gravity * dt;
       data.x += data.vx * dt;
       data.y += data.vy * dt;
+      data.rotation += data.rotationSpeed * dt;
 
       // Bounce off bottom
       if (data.y + cardHeight > screenHeight) {
@@ -314,6 +564,83 @@ export class Game {
       if (data.x + cardWidth > screenWidth) { data.x = screenWidth - cardWidth; data.vx *= -0.8; }
     }
   }
+
+  // --- Hint System ---
+
+  /**
+   * Find all valid moves (hints).
+   * @returns {Array<{from: object, to: object, cards: Card[]}>}
+   */
+  findHints() {
+    const hints = [];
+
+    // Waste to foundation
+    const wasteCard = this.stock.topWaste();
+    if (wasteCard) {
+      const pileIdx = this.foundation.findValidPile(wasteCard);
+      if (pileIdx !== -1) {
+        hints.push({
+          from: { type: 'waste' },
+          to: { type: 'foundation', index: pileIdx },
+          cards: [wasteCard]
+        });
+      }
+      // Waste to tableau
+      for (let c = 0; c < 7; c++) {
+        if (this.tableau.canPlace(wasteCard, c)) {
+          hints.push({
+            from: { type: 'waste' },
+            to: { type: 'tableau', col: c },
+            cards: [wasteCard]
+          });
+        }
+      }
+    }
+
+    // Tableau to foundation
+    for (let c = 0; c < 7; c++) {
+      const topCard = this.tableau.topCard(c);
+      if (topCard && topCard.faceUp) {
+        const pileIdx = this.foundation.findValidPile(topCard);
+        if (pileIdx !== -1) {
+          hints.push({
+            from: { type: 'tableau', col: c },
+            to: { type: 'foundation', index: pileIdx },
+            cards: [topCard]
+          });
+        }
+      }
+    }
+
+    // Tableau to tableau (all valid sequence moves)
+    const tableauHints = this.tableau.getHints(this.foundation);
+    for (const h of tableauHints) {
+      if (h.to.foundation !== undefined) continue; // already handled above
+      hints.push({
+        from: { type: 'tableau', col: h.from.col, index: h.from.index },
+        to: { type: 'tableau', col: h.to.col },
+        cards: h.cards
+      });
+    }
+
+    this._hints = hints;
+    return hints;
+  }
+
+  /**
+   * Get next hint (cycles through available hints).
+   */
+  getNextHint() {
+    if (this._hints.length === 0) {
+      this.findHints();
+    }
+    if (this._hints.length === 0) return null;
+    const hint = this._hints[this._currentHintIndex % this._hints.length];
+    this._currentHintIndex++;
+    return hint;
+  }
+
+  // --- Auto-Complete ---
 
   /**
    * Check if auto-complete is possible:
@@ -337,7 +664,7 @@ export class Game {
       if (pileIdx !== -1) {
         this.stock.takeFromWaste();
         this.foundation.placeCard(pileIdx, wasteCard);
-        this.score += 10;
+        this._addScore(SCORING.TABLEAU_TO_FOUNDATION);
         if (this.audio) this.audio.play('cardPlace');
         this._checkWin();
         return true;
@@ -352,7 +679,7 @@ export class Game {
         if (pileIdx !== -1) {
           this.tableau.removeSequence(c, this.tableau.columns[c].length - 1);
           this.foundation.placeCard(pileIdx, card);
-          this.score += 10;
+          this._addScore(SCORING.TABLEAU_TO_FOUNDATION);
           if (this.audio) this.audio.play('cardPlace');
           this._checkWin();
           return true;
@@ -362,12 +689,32 @@ export class Game {
     return false;
   }
 
+  startAutoComplete() {
+    if (this.canAutoComplete()) {
+      this.autoCompleting = true;
+      this.autoCompleteTimer = 0;
+      if (this.audio) this.audio.play('autoComplete');
+    }
+  }
+
+  // --- Update ---
+
   update(dt) {
     if (this.state === GAME_STATES.PLAYING) {
-      this.timer += dt;
+      // Timer
+      if (this.timerCountsDown) {
+        this.timer -= dt;
+        if (this.timer <= 0) {
+          this.timer = 0;
+          this.state = GAME_STATES.LOST;
+          if (this.onLose) this.onLose();
+        }
+      } else {
+        this.timer += dt;
+      }
 
-      // Hard mode time limit
-      if (this.hardMode && this.timer >= this.hardModeTime) {
+      // Hard mode time limit (legacy support)
+      if (this.hardMode && !this.timerCountsDown && this.timer >= this.hardModeTime) {
         this.state = GAME_STATES.LOST;
         if (this.onLose) this.onLose();
       }
@@ -375,7 +722,7 @@ export class Game {
       // Auto-complete
       if (this.autoCompleting) {
         this.autoCompleteTimer += dt;
-        if (this.autoCompleteTimer >= 0.1) {
+        if (this.autoCompleteTimer >= this.autoCompleteInterval) {
           this.autoCompleteTimer = 0;
           if (!this.autoCompleteStep()) {
             this.autoCompleting = false;
@@ -390,10 +737,40 @@ export class Game {
     }
   }
 
-  startAutoComplete() {
-    if (this.canAutoComplete()) {
-      this.autoCompleting = true;
-      this.autoCompleteTimer = 0;
-    }
+  // --- Serialization ---
+
+  /**
+   * Get game state for saving.
+   */
+  getSerializableState() {
+    return {
+      state: this.state,
+      score: this.score,
+      moves: this.moves,
+      timer: this.timer,
+      difficulty: this.difficulty,
+      scoringMode: this.scoringMode,
+      drawCount: this.drawCount,
+      seed: this.seed,
+      usedUndo: this.usedUndo,
+      usedStock: this.usedStock,
+      tableau: this.tableau.columns.map(col =>
+        col.map(c => ({ suit: c.suit, rank: c.rank, faceUp: c.faceUp }))
+      ),
+      foundation: this.foundation.piles.map(pile =>
+        pile.map(c => ({ suit: c.suit, rank: c.rank, faceUp: c.faceUp }))
+      ),
+      stock: this.stock.stock.map(c => ({ suit: c.suit, rank: c.rank, faceUp: c.faceUp })),
+      waste: this.stock.waste.map(c => ({ suit: c.suit, rank: c.rank, faceUp: c.faceUp })),
+      recycleCount: this.stock.recycleCount,
+      moveHistory: this.moveHistory
+    };
+  }
+
+  /**
+   * Get the replay data for this game.
+   */
+  getReplayData() {
+    return { ...this.replayData };
   }
 }

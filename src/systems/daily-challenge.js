@@ -1,7 +1,7 @@
 /**
  * Daily challenge system.
  * Generates today's game from a deterministic seed, tracks completion,
- * streak counting, and streak bonuses.
+ * streak counting, calendar data, monthly tracking, and streak bonuses.
  */
 
 import { getDailySeed } from '../config/daily-seeds.js';
@@ -37,6 +37,12 @@ export class DailyChallenge {
     this.completed = false;
     this.totalCompleted = 0;
     this.longestStreak = 0;
+
+    // Calendar data: array of completed date strings
+    this.completedDates = [];
+
+    // Monthly tracking
+    this.monthlyCompleted = {}; // { 'YYYY-MM': count }
   }
 
   /**
@@ -67,14 +73,14 @@ export class DailyChallenge {
 
   /**
    * Mark today's challenge as completed. Updates streak.
-   * @returns {{ streakBroken: boolean, newStreak: number }}
+   * @returns {{ streakBroken: boolean, newStreak: number, bonusMultiplier: number }}
    */
   complete() {
     const today = dateKey();
 
     // Already completed today
     if (this.lastCompleted === today) {
-      return { streakBroken: false, newStreak: this.streak };
+      return { streakBroken: false, newStreak: this.streak, bonusMultiplier: this._getStreakBonus() };
     }
 
     const yesterday = yesterdayKey();
@@ -96,11 +102,24 @@ export class DailyChallenge {
     this.completed = true;
     this.totalCompleted++;
 
+    // Track in calendar
+    if (!this.completedDates.includes(today)) {
+      this.completedDates.push(today);
+    }
+
+    // Monthly tracking
+    const monthKey = today.substring(0, 7); // YYYY-MM
+    this.monthlyCompleted[monthKey] = (this.monthlyCompleted[monthKey] || 0) + 1;
+
     if (this.streak > this.longestStreak) {
       this.longestStreak = this.streak;
     }
 
-    return { streakBroken, newStreak: this.streak };
+    return {
+      streakBroken,
+      newStreak: this.streak,
+      bonusMultiplier: this._getStreakBonus()
+    };
   }
 
   /**
@@ -136,6 +155,57 @@ export class DailyChallenge {
   }
 
   /**
+   * Get streak bonus multiplier.
+   * Increases rewards based on current streak length.
+   * @returns {number}
+   */
+  _getStreakBonus() {
+    if (this.streak >= 30) return 3.0;
+    if (this.streak >= 14) return 2.5;
+    if (this.streak >= 7) return 2.0;
+    if (this.streak >= 3) return 1.5;
+    return 1.0;
+  }
+
+  /**
+   * Get the streak bonus multiplier (public).
+   * @returns {number}
+   */
+  getStreakBonus() {
+    return this._getStreakBonus();
+  }
+
+  /**
+   * Get calendar data for a given month.
+   * @param {number} year
+   * @param {number} month (0-11)
+   * @returns {boolean[]} array of 31 booleans for each day
+   */
+  getCalendarMonth(year, month) {
+    const days = new Array(31).fill(false);
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+    for (const dateStr of this.completedDates) {
+      if (dateStr.startsWith(monthStr)) {
+        const day = parseInt(dateStr.substring(8, 10));
+        days[day - 1] = true;
+      }
+    }
+    return days;
+  }
+
+  /**
+   * Get monthly completion count.
+   * @param {number} year
+   * @param {number} month (0-11)
+   * @returns {number}
+   */
+  getMonthlyCount(year, month) {
+    const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+    return this.monthlyCompleted[key] || 0;
+  }
+
+  /**
    * Load state from saved data.
    * @param {object} data
    */
@@ -147,6 +217,8 @@ export class DailyChallenge {
     this.completed = data.lastCompleted === dateKey();
     this.totalCompleted = data.totalCompleted || 0;
     this.longestStreak = data.longestStreak || 0;
+    this.completedDates = data.completedDates || [];
+    this.monthlyCompleted = data.monthlyCompleted || {};
     // Update streak on load
     this.updateStreakStatus();
   }
@@ -161,7 +233,9 @@ export class DailyChallenge {
       lastPlayed: this.lastPlayed,
       lastCompleted: this.lastCompleted,
       totalCompleted: this.totalCompleted,
-      longestStreak: this.longestStreak
+      longestStreak: this.longestStreak,
+      completedDates: this.completedDates,
+      monthlyCompleted: this.monthlyCompleted
     };
   }
 }

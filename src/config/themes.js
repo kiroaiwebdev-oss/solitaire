@@ -1,7 +1,7 @@
 /**
- * Card back themes (unlockable).
+ * Card back themes (unlockable), table felt themes, card face styles.
  * Each theme has colors and draw instructions for programmatic canvas rendering.
- * Unlock conditions reference levels, achievements, or streaks.
+ * 12 card back themes with intricate programmatic patterns.
  */
 
 export const DEFAULT_THEME = 'classic';
@@ -86,7 +86,64 @@ export const THEMES = {
     pattern: 'crown',
     unlockCondition: { type: 'streak', streak: 7 },
     description: 'Achieve a 7-day streak.'
+  },
+  celticKnot: {
+    id: 'celticKnot',
+    name: 'Celtic Knot',
+    backPrimary: '#2a4a2a',
+    backSecondary: '#4a7a4a',
+    backAccent: '#8ab88a',
+    pattern: 'celtic',
+    unlockCondition: { type: 'level', level: 12 },
+    description: 'Unlock at Level 12.'
+  },
+  geometricMandala: {
+    id: 'geometricMandala',
+    name: 'Geometric Mandala',
+    backPrimary: '#2a2a4a',
+    backSecondary: '#4a4a7a',
+    backAccent: '#8a8abb',
+    pattern: 'mandala',
+    unlockCondition: { type: 'level', level: 15 },
+    description: 'Unlock at Level 15.'
+  },
+  galaxyNebula: {
+    id: 'galaxyNebula',
+    name: 'Galaxy Nebula',
+    backPrimary: '#0a0a2a',
+    backSecondary: '#2a1a4a',
+    backAccent: '#6a4abb',
+    pattern: 'galaxy',
+    unlockCondition: { type: 'achievement', achievement: 'card_shark' },
+    description: 'Win 5 games in a row.'
+  },
+  emeraldForest: {
+    id: 'emeraldForest',
+    name: 'Emerald Forest',
+    backPrimary: '#0a3a1a',
+    backSecondary: '#1a5a2a',
+    backAccent: '#3aba5a',
+    pattern: 'forest',
+    unlockCondition: { type: 'level', level: 20 },
+    description: 'Unlock at Level 20.'
   }
+};
+
+// --- Table Felt Themes ---
+export const TABLE_THEMES = {
+  green: { id: 'green', name: 'Classic Green', color: '#1a6b3c', gradient: ['#1a6b3c', '#145a32'] },
+  blue: { id: 'blue', name: 'Ocean Blue', color: '#1a3a6b', gradient: ['#1a3a6b', '#14305a'] },
+  red: { id: 'red', name: 'Casino Red', color: '#6b1a2a', gradient: ['#6b1a2a', '#5a1422'] },
+  purple: { id: 'purple', name: 'Royal Purple', color: '#3a1a5a', gradient: ['#3a1a5a', '#2a1448'] },
+  dark: { id: 'dark', name: 'Dark Mode', color: '#1a1a2a', gradient: ['#1a1a2a', '#121220'] },
+  midnight: { id: 'midnight', name: 'Midnight', color: '#0a0a1a', gradient: ['#0a0a1a', '#060612'] }
+};
+
+// --- Card Face Styles ---
+export const CARD_FACE_STYLES = {
+  classic: { id: 'classic', name: 'Classic', fontWeight: 'bold', suitSize: 0.4 },
+  modern: { id: 'modern', name: 'Modern', fontWeight: '600', suitSize: 0.35 },
+  minimal: { id: 'minimal', name: 'Minimal', fontWeight: '300', suitSize: 0.3 }
 };
 
 /**
@@ -141,34 +198,23 @@ export function drawThemeBack(ctx, x, y, w, h, themeId) {
 
   // Draw pattern
   switch (theme.pattern) {
-    case 'diamonds':
-      _drawDiamondPattern(ctx, x, y, w, h, theme);
-      break;
-    case 'crosshatch':
-      _drawCrosshatchPattern(ctx, x, y, w, h, theme);
-      break;
-    case 'fleur':
-      _drawFleurPattern(ctx, x, y, w, h, theme);
-      break;
-    case 'stars':
-      _drawStarsPattern(ctx, x, y, w, h, theme);
-      break;
-    case 'waves':
-      _drawWavesPattern(ctx, x, y, w, h, theme);
-      break;
-    case 'abstract':
-      _drawAbstractPattern(ctx, x, y, w, h, theme);
-      break;
-    case 'crown':
-      _drawCrownPattern(ctx, x, y, w, h, theme);
-      break;
-    default:
-      _drawDiamondPattern(ctx, x, y, w, h, theme);
+    case 'diamonds': _drawDiamondPattern(ctx, x, y, w, h, theme); break;
+    case 'crosshatch': _drawCrosshatchPattern(ctx, x, y, w, h, theme); break;
+    case 'fleur': _drawFleurPattern(ctx, x, y, w, h, theme); break;
+    case 'stars': _drawStarsPattern(ctx, x, y, w, h, theme); break;
+    case 'waves': _drawWavesPattern(ctx, x, y, w, h, theme); break;
+    case 'abstract': _drawAbstractPattern(ctx, x, y, w, h, theme); break;
+    case 'crown': _drawCrownPattern(ctx, x, y, w, h, theme); break;
+    case 'celtic': _drawCelticPattern(ctx, x, y, w, h, theme); break;
+    case 'mandala': _drawMandalaPattern(ctx, x, y, w, h, theme); break;
+    case 'galaxy': _drawGalaxyPattern(ctx, x, y, w, h, theme); break;
+    case 'forest': _drawForestPattern(ctx, x, y, w, h, theme); break;
+    default: _drawDiamondPattern(ctx, x, y, w, h, theme);
   }
 
   ctx.restore();
 
-  // Border and inner frame (outside clip)
+  // Border and inner frame
   ctx.save();
   _roundedRectPath(ctx, x, y, w, h, r);
   ctx.strokeStyle = theme.backAccent;
@@ -183,7 +229,7 @@ export function drawThemeBack(ctx, x, y, w, h, themeId) {
   ctx.restore();
 }
 
-// --- Pattern drawing functions ---
+// --- Pattern Drawing Functions ---
 
 function _drawDiamondPattern(ctx, x, y, w, h, theme) {
   const cx = x + w / 2;
@@ -219,7 +265,6 @@ function _drawCrosshatchPattern(ctx, x, y, w, h, theme) {
     ctx.lineTo(x + i, y + h);
     ctx.stroke();
   }
-  // Center emblem
   const cx = x + w / 2;
   const cy = y + h / 2;
   ctx.fillStyle = theme.backAccent;
@@ -232,14 +277,11 @@ function _drawFleurPattern(ctx, x, y, w, h, theme) {
   const cx = x + w / 2;
   const cy = y + h / 2;
   ctx.fillStyle = theme.backSecondary;
-
-  // Fleur-de-lis inspired pattern - repeating ornamental shapes
   const size = w * 0.12;
   for (let row = -2; row <= 2; row++) {
     for (let col = -1; col <= 1; col++) {
       const px = cx + col * (size * 2.5);
       const py = cy + row * (size * 2);
-      // Simple ornamental shape (diamond with dots)
       ctx.beginPath();
       ctx.moveTo(px, py - size);
       ctx.lineTo(px + size * 0.5, py);
@@ -247,13 +289,11 @@ function _drawFleurPattern(ctx, x, y, w, h, theme) {
       ctx.lineTo(px - size * 0.5, py);
       ctx.closePath();
       ctx.fill();
-      // Dots at corners
       ctx.beginPath();
       ctx.arc(px, py - size * 0.5, size * 0.15, 0, Math.PI * 2);
       ctx.fill();
     }
   }
-  // Gold center accent
   ctx.fillStyle = theme.backAccent;
   ctx.beginPath();
   ctx.arc(cx, cy, w * 0.08, 0, Math.PI * 2);
@@ -261,14 +301,12 @@ function _drawFleurPattern(ctx, x, y, w, h, theme) {
 }
 
 function _drawStarsPattern(ctx, x, y, w, h, theme) {
-  // Dark gradient background
   const grad = ctx.createLinearGradient(x, y, x, y + h);
   grad.addColorStop(0, theme.backPrimary);
   grad.addColorStop(1, theme.backSecondary);
   ctx.fillStyle = grad;
   ctx.fillRect(x, y, w, h);
 
-  // Stars
   ctx.fillStyle = theme.backAccent;
   const starPositions = [
     [0.3, 0.2], [0.7, 0.15], [0.2, 0.5], [0.8, 0.4],
@@ -278,7 +316,7 @@ function _drawStarsPattern(ctx, x, y, w, h, theme) {
   for (const [sx, sy] of starPositions) {
     const px = x + w * sx;
     const py = y + h * sy;
-    const size = w * 0.03 + Math.random() * w * 0.02;
+    const size = w * 0.035;
     _drawStar(ctx, px, py, size);
   }
   // Moon crescent
@@ -306,14 +344,12 @@ function _drawStar(ctx, cx, cy, size) {
 }
 
 function _drawWavesPattern(ctx, x, y, w, h, theme) {
-  // Gradient
   const grad = ctx.createLinearGradient(x, y, x, y + h);
   grad.addColorStop(0, theme.backPrimary);
   grad.addColorStop(1, theme.backSecondary);
   ctx.fillStyle = grad;
   ctx.fillRect(x, y, w, h);
 
-  // Wave lines
   ctx.strokeStyle = theme.backAccent;
   ctx.lineWidth = 1.5;
   const waveCount = 6;
@@ -330,14 +366,12 @@ function _drawWavesPattern(ctx, x, y, w, h, theme) {
 }
 
 function _drawAbstractPattern(ctx, x, y, w, h, theme) {
-  // Gradient background
   const grad = ctx.createRadialGradient(x + w / 2, y + h / 2, 0, x + w / 2, y + h / 2, w * 0.7);
   grad.addColorStop(0, theme.backSecondary);
   grad.addColorStop(1, theme.backPrimary);
   ctx.fillStyle = grad;
   ctx.fillRect(x, y, w, h);
 
-  // Abstract circles
   const circles = [
     [0.3, 0.3, 0.15], [0.7, 0.6, 0.12], [0.5, 0.8, 0.1],
     [0.2, 0.7, 0.08], [0.8, 0.25, 0.09]
@@ -349,10 +383,6 @@ function _drawAbstractPattern(ctx, x, y, w, h, theme) {
     ctx.arc(x + w * cx, y + h * cy, w * cr, 0, Math.PI * 2);
     ctx.fill();
   }
-  ctx.globalAlpha = 1;
-
-  // Triangles
-  ctx.fillStyle = theme.backAccent;
   ctx.globalAlpha = 0.4;
   ctx.beginPath();
   ctx.moveTo(x + w * 0.5, y + h * 0.2);
@@ -364,14 +394,12 @@ function _drawAbstractPattern(ctx, x, y, w, h, theme) {
 }
 
 function _drawCrownPattern(ctx, x, y, w, h, theme) {
-  // Gradient
   const grad = ctx.createLinearGradient(x, y, x, y + h);
   grad.addColorStop(0, theme.backSecondary);
   grad.addColorStop(1, theme.backPrimary);
   ctx.fillStyle = grad;
   ctx.fillRect(x, y, w, h);
 
-  // Crown shape in center
   const cx = x + w / 2;
   const cy = y + h / 2;
   const crownW = w * 0.5;
@@ -379,7 +407,6 @@ function _drawCrownPattern(ctx, x, y, w, h, theme) {
 
   ctx.fillStyle = theme.backAccent;
   ctx.beginPath();
-  // Crown base
   ctx.moveTo(cx - crownW / 2, cy + crownH / 2);
   ctx.lineTo(cx - crownW / 2, cy - crownH / 4);
   ctx.lineTo(cx - crownW / 4, cy);
@@ -390,17 +417,169 @@ function _drawCrownPattern(ctx, x, y, w, h, theme) {
   ctx.closePath();
   ctx.fill();
 
-  // Jewels on crown points
   ctx.fillStyle = theme.backPrimary;
+  ctx.beginPath(); ctx.arc(cx - crownW / 2, cy - crownH / 4, w * 0.03, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy - crownH / 2, w * 0.03, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + crownW / 2, cy - crownH / 4, w * 0.03, 0, Math.PI * 2); ctx.fill();
+}
+
+function _drawCelticPattern(ctx, x, y, w, h, theme) {
+  const grad = ctx.createLinearGradient(x, y, x, y + h);
+  grad.addColorStop(0, theme.backPrimary);
+  grad.addColorStop(1, theme.backSecondary);
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y, w, h);
+
+  // Celtic knot-like interlocking circles
+  ctx.strokeStyle = theme.backAccent;
+  ctx.lineWidth = 1.5;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const r = w * 0.15;
+
+  for (let i = 0; i < 4; i++) {
+    const angle = (i * Math.PI) / 2;
+    const ox = cx + Math.cos(angle) * r * 0.5;
+    const oy = cy + Math.sin(angle) * r * 0.5;
+    ctx.beginPath();
+    ctx.arc(ox, oy, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // Central circle
   ctx.beginPath();
-  ctx.arc(cx - crownW / 2, cy - crownH / 4, w * 0.03, 0, Math.PI * 2);
+  ctx.arc(cx, cy, r * 0.4, 0, Math.PI * 2);
+  ctx.fillStyle = theme.backAccent;
+  ctx.globalAlpha = 0.5;
   ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function _drawMandalaPattern(ctx, x, y, w, h, theme) {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, w * 0.6);
+  grad.addColorStop(0, theme.backSecondary);
+  grad.addColorStop(1, theme.backPrimary);
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y, w, h);
+
+  // Geometric mandala rings
+  ctx.strokeStyle = theme.backAccent;
+  ctx.lineWidth = 1;
+
+  const rings = [0.35, 0.25, 0.15, 0.08];
+  for (const ringR of rings) {
+    const radius = w * ringR;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Radial lines
+  const spokes = 8;
+  for (let i = 0; i < spokes; i++) {
+    const angle = (i * Math.PI * 2) / spokes;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(angle) * w * 0.08, cy + Math.sin(angle) * w * 0.08);
+    ctx.lineTo(cx + Math.cos(angle) * w * 0.35, cy + Math.sin(angle) * w * 0.35);
+    ctx.stroke();
+  }
+
+  // Petals
+  ctx.fillStyle = theme.backAccent;
+  ctx.globalAlpha = 0.3;
+  for (let i = 0; i < spokes; i++) {
+    const angle = (i * Math.PI * 2) / spokes + Math.PI / spokes;
+    const px = cx + Math.cos(angle) * w * 0.2;
+    const py = cy + Math.sin(angle) * w * 0.2;
+    ctx.beginPath();
+    ctx.arc(px, py, w * 0.04, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function _drawGalaxyPattern(ctx, x, y, w, h, theme) {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+
+  // Dark background gradient
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, w * 0.7);
+  grad.addColorStop(0, theme.backSecondary);
+  grad.addColorStop(0.5, theme.backPrimary);
+  grad.addColorStop(1, '#000010');
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y, w, h);
+
+  // Spiral arms
+  ctx.strokeStyle = theme.backAccent;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.4;
+  for (let arm = 0; arm < 2; arm++) {
+    ctx.beginPath();
+    for (let t = 0; t < 4; t += 0.1) {
+      const angle = t + arm * Math.PI;
+      const r = t * w * 0.06;
+      const px = cx + Math.cos(angle) * r;
+      const py = cy + Math.sin(angle) * r;
+      if (t === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Stars
+  ctx.fillStyle = theme.backAccent;
+  const positions = [[0.2, 0.2], [0.8, 0.3], [0.3, 0.8], [0.75, 0.7], [0.5, 0.15], [0.15, 0.5]];
+  for (const [sx, sy] of positions) {
+    ctx.beginPath();
+    ctx.arc(x + w * sx, y + h * sy, w * 0.015, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function _drawForestPattern(ctx, x, y, w, h, theme) {
+  const grad = ctx.createLinearGradient(x, y, x, y + h);
+  grad.addColorStop(0, theme.backSecondary);
+  grad.addColorStop(1, theme.backPrimary);
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y, w, h);
+
+  // Simple tree shapes
+  ctx.fillStyle = theme.backAccent;
+  ctx.globalAlpha = 0.4;
+
+  const trees = [[0.3, 0.6], [0.5, 0.5], [0.7, 0.65], [0.2, 0.75], [0.8, 0.7]];
+  for (const [tx, ty] of trees) {
+    const treeX = x + w * tx;
+    const treeY = y + h * ty;
+    const treeW = w * 0.08;
+    const treeH = h * 0.2;
+    // Triangle tree
+    ctx.beginPath();
+    ctx.moveTo(treeX, treeY - treeH);
+    ctx.lineTo(treeX + treeW, treeY);
+    ctx.lineTo(treeX - treeW, treeY);
+    ctx.closePath();
+    ctx.fill();
+    // Trunk
+    ctx.fillRect(treeX - treeW * 0.2, treeY, treeW * 0.4, treeH * 0.3);
+  }
+  ctx.globalAlpha = 1;
+
+  // Ground line
+  ctx.strokeStyle = theme.backAccent;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.3;
   ctx.beginPath();
-  ctx.arc(cx, cy - crownH / 2, w * 0.03, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(cx + crownW / 2, cy - crownH / 4, w * 0.03, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.moveTo(x, y + h * 0.8);
+  for (let px = 0; px <= w; px += 3) {
+    ctx.lineTo(x + px, y + h * 0.8 + Math.sin(px * 0.1) * 2);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
 }
 
 function _roundedRectPath(ctx, x, y, w, h, r) {

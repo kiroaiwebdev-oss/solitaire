@@ -1,6 +1,7 @@
 /**
  * Foundation: 4 piles, one per suit.
  * Rules: Ace starts, same suit ascending.
+ * Includes progress tracking per pile.
  */
 
 import { SUITS } from './card.js';
@@ -87,6 +88,22 @@ export class Foundation {
   }
 
   /**
+   * Get progress per pile (0-13).
+   * @returns {number[]}
+   */
+  getProgress() {
+    return this.piles.map(pile => pile.length);
+  }
+
+  /**
+   * Get overall progress as fraction (0-1).
+   * @returns {number}
+   */
+  getOverallProgress() {
+    return this.totalCards() / 52;
+  }
+
+  /**
    * Find which pile a card belongs to.
    * @returns {{ pile: number, index: number } | null}
    */
@@ -96,5 +113,16 @@ export class Foundation {
       if (idx !== -1) return { pile: p, index: idx };
     }
     return null;
+  }
+
+  /**
+   * Get the suit assigned to a pile (based on what's already there).
+   * @param {number} pileIndex
+   * @returns {string|null}
+   */
+  getPileSuit(pileIndex) {
+    const pile = this.piles[pileIndex];
+    if (pile.length === 0) return null;
+    return pile[0].suit;
   }
 }

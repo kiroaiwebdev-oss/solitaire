@@ -1,6 +1,6 @@
 /**
  * Stock and Waste piles.
- * Supports draw-1 and draw-3 modes.
+ * Supports draw-1 and draw-3 modes with recycle count tracking.
  */
 
 export class Stock {
@@ -10,6 +10,7 @@ export class Stock {
     /** @type {import('./card.js').Card[]} */
     this.waste = [];
     this.drawCount = 1; // 1 or 3
+    this.recycleCount = 0; // How many times stock has been recycled
   }
 
   /**
@@ -21,6 +22,7 @@ export class Stock {
     this.stock = [...cards];
     this.waste = [];
     this.drawCount = drawCount;
+    this.recycleCount = 0;
     // All stock cards are face down
     for (const card of this.stock) {
       card.faceUp = false;
@@ -46,6 +48,7 @@ export class Stock {
 
   /**
    * Recycle waste back to stock (when stock is empty and user clicks stock).
+   * @returns {boolean} whether recycle happened
    */
   recycle() {
     if (this.stock.length > 0) return false;
@@ -54,6 +57,7 @@ export class Stock {
       card.faceUp = false;
       this.stock.push(card);
     }
+    this.recycleCount++;
     return true;
   }
 
@@ -96,7 +100,7 @@ export class Stock {
   }
 
   /**
-   * Get visible waste cards (for draw-3, show up to 3).
+   * Get visible waste cards (for draw-3, show up to 3 fanned).
    * @returns {import('./card.js').Card[]}
    */
   visibleWaste() {
@@ -104,8 +108,24 @@ export class Stock {
       const top = this.topWaste();
       return top ? [top] : [];
     }
-    // In draw-3, show up to 3 top waste cards
+    // In draw-3, show up to 3 top waste cards fanned
     const count = Math.min(3, this.waste.length);
     return this.waste.slice(this.waste.length - count);
+  }
+
+  /**
+   * Get total cards remaining in stock.
+   * @returns {number}
+   */
+  stockCount() {
+    return this.stock.length;
+  }
+
+  /**
+   * Get total cards in waste.
+   * @returns {number}
+   */
+  wasteCount() {
+    return this.waste.length;
   }
 }

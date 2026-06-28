@@ -1,9 +1,10 @@
 /**
  * Drag-and-drop system for cards.
- * Handles hit testing, picking up cards/sequences, visual follow, and drop validation.
+ * Handles hit testing, picking up cards/sequences, visual follow,
+ * tilt based on velocity, elastic snap-back, and drop validation.
  */
 
-import { easeOutCubic, lerp } from '../core/math.js';
+import { easeOutCubic, easeOutElastic, lerp } from '../core/math.js';
 
 export class DragSystem {
   constructor() {
@@ -12,8 +13,21 @@ export class DragSystem {
     this.active = false;
     this.offsetX = 0;
     this.offsetY = 0;
-    this.source = null; // { type: 'tableau'|'waste'|'foundation', col/pile index }
+    this.source = null; // { type: 'tableau'|'waste'|'foundation', index, cardIndex }
     this.returnPositions = []; // original positions for snap-back animation
+
+    // Velocity tracking for tilt effect
+    this.velocityX = 0;
+    this.velocityY = 0;
+    this._lastX = 0;
+    this._lastY = 0;
+    this._lastTime = 0;
+
+    // Snap-back animation
+    this._snapBacking = false;
+    this._snapBackTime = 0;
+    this._snapBackDuration = 0.35;
+    this._snapBackStartPositions = [];
   }
 
   /**
@@ -21,7 +35,7 @@ export class DragSystem {
    * @param {import('./card.js').Card[]} cards
    * @param {number} pointerX
    * @param {number} pointerY
-   * @param {{ type: string, index: number }} source
+   * @param {{ type: string, index: number, cardIndex?: number }} source
    */
   start(cards, pointerX, pointerY, source) {
     if (cards.length === 0) return;
@@ -32,22 +46,47 @@ export class DragSystem {
     this.offsetY = pointerY - cards[0].y;
     this.returnPositions = cards.map(c => ({ x: c.x, y: c.y }));
 
-    // Mark cards as dragging
+    this.velocityX = 0;
+    this.velocityY = 0;
+    this._lastX = pointerX;
+    this._lastY = pointerY;
+    this._lastTime = performance.now();
+    this._snapBacking = false;
+
+    // Mark cards as dragging with elevated shadow
     for (const card of cards) {
       card.dragging = true;
       card.zIndex = 1000;
+      card.targetElevation = 0.8;
     }
   }
 
   /**
-   * Update card positions to follow pointer.
+   * Update card positions to follow pointer with tilt calculation.
    */
   move(pointerX, pointerY, cardHeight) {
     if (!this.active) return;
+
+    const now = performance.now();
+    const dt = Math.max(0.001, (now - this._lastTime) / 1000);
+
+    // Calculate velocity for tilt
+    this.velocityX = (pointerX - this._lastX) / dt;
+    this.velocityY = (pointerY - this._lastY) / dt;
+    this._lastX = pointerX;
+    this._lastY = pointerY;
+    this._lastTime = now;
+
+    // Calculate tilt from horizontal velocity (clamped)
+    const maxTilt = 0.15; // radians
+    const tiltFactor = 0.0001;
+    const targetTilt = Math.max(-maxTilt, Math.min(maxTilt, this.velocityX * tiltFactor));
+
     const stackOffset = cardHeight * 0.25;
     for (let i = 0; i < this.cards.length; i++) {
       this.cards[i].x = pointerX - this.offsetX;
       this.cards[i].y = pointerY - this.offsetY + i * stackOffset;
+      this.cards[i].targetTilt = targetTilt;
     }
   }
 
@@ -60,20 +99,28 @@ export class DragSystem {
     for (const card of this.cards) {
       card.dragging = false;
       card.zIndex = 0;
+      card.targetElevation = 0;
+      card.targetTilt = 0;
     }
     this.active = false;
     return result;
   }
 
   /**
-   * Animate cards back to their original positions (invalid drop).
+   * Animate cards back to their original positions with elastic bounce.
    */
   snapBack() {
+    this._snapBacking = true;
+    this._snapBackTime = 0;
+    this._snapBackStartPositions = this.cards.map(c => ({ x: c.x, y: c.y }));
+
     for (let i = 0; i < this.cards.length; i++) {
       const pos = this.returnPositions[i];
-      this.cards[i].animateTo(pos.x, pos.y, 0.2);
+      this.cards[i].animateTo(pos.x, pos.y, this._snapBackDuration);
       this.cards[i].dragging = false;
       this.cards[i].zIndex = 0;
+      this.cards[i].targetElevation = 0;
+      this.cards[i].targetTilt = 0;
     }
     this.active = false;
     this.cards = [];
@@ -86,5 +133,13 @@ export class DragSystem {
   cancel() {
     if (!this.active) return;
     this.snapBack();
+  }
+
+  /**
+   * Get the current drag velocity magnitude.
+   * @returns {number}
+   */
+  getSpeed() {
+    return Math.hypot(this.velocityX, this.velocityY);
   }
 }

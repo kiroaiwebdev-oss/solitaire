@@ -1,9 +1,9 @@
 /**
- * Card class with suit, rank, position, animation, and programmatic rendering.
+ * Card class with suit, rank, position, animation, 3D flip,
+ * drag state, elevation shadow, tilt, glow, and programmatic rendering.
  */
 
 import { lerp, easeOutCubic } from '../core/math.js';
-import { drawThemeBack, DEFAULT_THEME } from '../config/themes.js';
 
 export const SUITS = ['spades', 'hearts', 'diamonds', 'clubs'];
 export const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -22,14 +22,14 @@ export function suitColor(suit) {
 }
 
 // Active theme for all card backs (shared across all cards)
-let _activeTheme = DEFAULT_THEME;
+let _activeTheme = 'classic';
 
 /**
  * Set the active card back theme.
  * @param {string} themeId
  */
 export function setCardTheme(themeId) {
-  _activeTheme = themeId || DEFAULT_THEME;
+  _activeTheme = themeId || 'classic';
 }
 
 /**
@@ -46,20 +46,42 @@ export class Card {
     this.rank = rank;
     this.value = RANK_VALUES[rank];
     this.faceUp = false;
+
+    // Position
     this.x = 0;
     this.y = 0;
     this.targetX = 0;
     this.targetY = 0;
     this.width = 70;
     this.height = 100;
+
+    // Movement animation
     this.animating = false;
     this.animTime = 0;
     this.animDuration = 0.2;
     this.startX = 0;
     this.startY = 0;
+
+    // Z-order
     this.zIndex = 0;
+
+    // Drag state
     this.dragging = false;
-    // Flip animation
+
+    // Elevation (affects shadow) 0-1
+    this.elevation = 0;
+    this.targetElevation = 0;
+
+    // Tilt angle (from drag velocity)
+    this.tilt = 0;
+    this.targetTilt = 0;
+
+    // Glow state for hints
+    this.glowing = false;
+    this.glowIntensity = 0;
+    this.glowColor = '#ffcc00';
+
+    // 3D Flip animation
     this.flipping = false;
     this.flipTime = 0;
     this.flipDuration = 0.3;
@@ -104,6 +126,7 @@ export class Card {
   }
 
   update(dt) {
+    // Position animation
     if (this.animating) {
       this.animTime += dt;
       const t = Math.min(this.animTime / this.animDuration, 1);
@@ -116,18 +139,17 @@ export class Card {
         this.y = this.targetY;
       }
     }
+
+    // Flip animation
     if (this.flipping) {
       this.flipTime += dt;
       const t = Math.min(this.flipTime / this.flipDuration, 1);
       if (t < 0.5) {
-        // First half: scale from 1 to 0
         this.flipScaleX = 1 - t * 2;
       } else {
-        // Midpoint: flip the face
         if (this.faceUp !== this.flipTargetFaceUp) {
           this.faceUp = this.flipTargetFaceUp;
         }
-        // Second half: scale from 0 to 1
         this.flipScaleX = (t - 0.5) * 2;
       }
       if (t >= 1) {
@@ -135,6 +157,19 @@ export class Card {
         this.flipScaleX = 1;
         this.faceUp = this.flipTargetFaceUp;
       }
+    }
+
+    // Smooth elevation
+    this.elevation = lerp(this.elevation, this.targetElevation, 0.15);
+
+    // Smooth tilt
+    this.tilt = lerp(this.tilt, this.targetTilt, 0.12);
+
+    // Glow pulse
+    if (this.glowing) {
+      this.glowIntensity = 0.5 + 0.5 * Math.sin(performance.now() * 0.005);
+    } else {
+      this.glowIntensity = lerp(this.glowIntensity, 0, 0.1);
     }
   }
 
@@ -147,26 +182,50 @@ export class Card {
     this.width = cardWidth;
     this.height = cardHeight;
 
+    ctx.save();
+
+    // Apply tilt
+    if (Math.abs(this.tilt) > 0.001) {
+      const cx = this.x + cardWidth / 2;
+      const cy = this.y + cardHeight / 2;
+      ctx.translate(cx, cy);
+      ctx.rotate(this.tilt);
+      ctx.translate(-cx, -cy);
+    }
+
+    // Draw glow
+    if (this.glowIntensity > 0.01) {
+      ctx.shadowColor = this.glowColor;
+      ctx.shadowBlur = 10 + this.glowIntensity * 10;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    }
+
+    // Draw elevation shadow
+    if (this.elevation > 0.01) {
+      const shadowBlur = 4 + this.elevation * 12;
+      const shadowOffsetY = 2 + this.elevation * 6;
+      ctx.shadowColor = `rgba(0,0,0,${0.15 + this.elevation * 0.25})`;
+      ctx.shadowBlur = shadowBlur;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = shadowOffsetY;
+    }
+
     // Apply flip scale transform
     if (this.flipping && this.flipScaleX < 1) {
-      ctx.save();
       const cx = this.x + cardWidth / 2;
       ctx.translate(cx, 0);
       ctx.scale(this.flipScaleX, 1);
       ctx.translate(-cx, 0);
-      if (this.faceUp) {
-        this._renderFace(ctx, cardWidth, cardHeight);
-      } else {
-        this._renderBack(ctx, cardWidth, cardHeight);
-      }
-      ctx.restore();
-    } else {
-      if (this.faceUp) {
-        this._renderFace(ctx, cardWidth, cardHeight);
-      } else {
-        this._renderBack(ctx, cardWidth, cardHeight);
-      }
     }
+
+    if (this.faceUp) {
+      this._renderFace(ctx, cardWidth, cardHeight);
+    } else {
+      this._renderBack(ctx, cardWidth, cardHeight);
+    }
+
+    ctx.restore();
   }
 
   _renderFace(ctx, w, h) {
@@ -176,13 +235,18 @@ export class Card {
     const color = suitColor(this.suit);
 
     // Card background
-    ctx.save();
     _roundedRectPath(ctx, x, y, w, h, r);
     ctx.fillStyle = '#ffffff';
     ctx.fill();
-    ctx.strokeStyle = '#999999';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#b0b0b0';
+    ctx.lineWidth = 0.5;
     ctx.stroke();
+
+    // Clear shadow for text rendering
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
 
     // Rank in top-left
     const fontSize = Math.max(10, w * 0.22);
@@ -212,18 +276,28 @@ export class Card {
     const smallSuitSize2 = w * 0.18;
     this._drawSuitSymbol(ctx, w * 0.08 + smallSuitSize2 * 0.3, h * 0.05 + fontSize + 2, smallSuitSize2, color);
     ctx.restore();
-
-    ctx.restore();
   }
 
   _renderBack(ctx, w, h) {
-    drawThemeBack(ctx, this.x, this.y, w, h, _activeTheme);
+    // Delegate to themes module - lazy import to avoid circular deps at module level
+    const { drawThemeBack } = _getThemeModule();
+    if (drawThemeBack) {
+      drawThemeBack(ctx, this.x, this.y, w, h, _activeTheme);
+    } else {
+      // Fallback if theme module unavailable
+      const r = Math.min(w * 0.08, 6);
+      _roundedRectPath(ctx, this.x, this.y, w, h, r);
+      ctx.fillStyle = '#1a5b3a';
+      ctx.fill();
+      ctx.strokeStyle = '#4a9b6a';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
   }
 
   _drawSuitSymbol(ctx, cx, cy, size, color) {
     ctx.save();
     ctx.fillStyle = color;
-    ctx.beginPath();
 
     switch (this.suit) {
       case 'spades':
@@ -295,6 +369,31 @@ export class Card {
   toString() {
     return `${this.rank}${this.suit[0].toUpperCase()}`;
   }
+}
+
+// Lazy theme module reference (avoids circular import at module top level)
+let _themeModule = null;
+function _getThemeModule() {
+  if (!_themeModule) {
+    try {
+      // This will be resolved at runtime since themes.js imports from card.js
+      // The drawThemeBack function is set externally via registerThemeRenderer
+      _themeModule = { drawThemeBack: _registeredThemeRenderer };
+    } catch (e) {
+      _themeModule = { drawThemeBack: null };
+    }
+  }
+  return _themeModule;
+}
+
+let _registeredThemeRenderer = null;
+
+/**
+ * Register the theme renderer function (called by themes.js to avoid circular deps).
+ */
+export function registerThemeRenderer(fn) {
+  _registeredThemeRenderer = fn;
+  _themeModule = { drawThemeBack: fn };
 }
 
 function _roundedRectPath(ctx, x, y, w, h, r) {

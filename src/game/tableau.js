@@ -1,6 +1,7 @@
 /**
  * Tableau: 7 columns of cards.
  * Rules: alternating colors, descending rank. Empty columns accept Kings only.
+ * Includes hint detection and dynamic stack offset calculation.
  */
 
 import { RANK_VALUES, isRed } from './card.js';
@@ -81,7 +82,7 @@ export class Tableau {
 
   /**
    * Remove cards from cardIndex onward from a column.
-   * Reveals the new top card if needed (with optional flip animation).
+   * Reveals the new top card if needed (with flip animation).
    * @returns {import('./card.js').Card[]} removed cards
    */
   removeSequence(colIndex, cardIndex) {
@@ -92,7 +93,7 @@ export class Tableau {
       const topCard = col[col.length - 1];
       topCard.faceUp = true;
       // Trigger visual flip animation if available
-      if (topCard.animateFlip) {
+      if (typeof topCard.animateFlip === 'function') {
         topCard.flipping = true;
         topCard.flipTime = 0;
         topCard.flipDuration = 0.3;
@@ -149,5 +150,77 @@ export class Tableau {
       }
     }
     return true;
+  }
+
+  /**
+   * Find all valid tableau-to-tableau hints.
+   * Returns an array of { from: { col, index }, to: { col }, cards: Card[] }
+   */
+  getHints(foundation) {
+    const hints = [];
+    for (let fromCol = 0; fromCol < 7; fromCol++) {
+      const col = this.columns[fromCol];
+      for (let i = 0; i < col.length; i++) {
+        if (!col[i].faceUp) continue;
+        if (!this.canPickSequence(fromCol, i)) continue;
+        const seq = this.getSequence(fromCol, i);
+        if (seq.length === 0) continue;
+
+        for (let toCol = 0; toCol < 7; toCol++) {
+          if (toCol === fromCol) continue;
+          if (this.canPlace(seq[0], toCol)) {
+            // Skip moves of Kings from empty cols to empty cols (pointless)
+            if (seq[0].value === 13 && this.columns[fromCol].length === seq.length &&
+                this.columns[toCol].length === 0) continue;
+            hints.push({
+              from: { col: fromCol, index: i },
+              to: { col: toCol },
+              cards: seq
+            });
+          }
+        }
+
+        // Also check foundation if provided
+        if (foundation && seq.length === 1) {
+          const pileIdx = foundation.findValidPile(seq[0]);
+          if (pileIdx !== -1) {
+            hints.push({
+              from: { col: fromCol, index: i },
+              to: { foundation: pileIdx },
+              cards: seq
+            });
+          }
+        }
+      }
+    }
+    return hints;
+  }
+
+  /**
+   * Calculate dynamic stack offset for a column based on card count and available height.
+   * @param {number} colIndex
+   * @param {number} availableHeight - total height available for the column
+   * @param {number} cardHeight - individual card height
+   * @returns {number} - offset between cards (face-down and face-up may differ)
+   */
+  getStackOffset(colIndex, availableHeight, cardHeight) {
+    const col = this.columns[colIndex];
+    if (col.length <= 1) return cardHeight * 0.25;
+
+    const faceDownCount = col.filter(c => !c.faceUp).length;
+    const faceUpCount = col.length - faceDownCount;
+
+    const faceDownOffset = cardHeight * 0.12;
+    const idealFaceUpOffset = cardHeight * 0.28;
+
+    const neededHeight = cardHeight + faceDownCount * faceDownOffset + faceUpCount * idealFaceUpOffset;
+
+    if (neededHeight <= availableHeight) {
+      return idealFaceUpOffset;
+    }
+
+    // Compress
+    const remaining = availableHeight - cardHeight - faceDownCount * faceDownOffset;
+    return Math.max(cardHeight * 0.15, remaining / Math.max(1, faceUpCount));
   }
 }

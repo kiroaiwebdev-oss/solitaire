@@ -1,11 +1,11 @@
 /**
- * Save/load manager.
- * Handles persistence of game state, statistics, achievements,
- * progression, settings, and daily challenge data.
+ * Save/load manager with versioned storage, game history,
+ * replay data, and data migration support.
  * Uses platform adapter when available, localStorage as fallback.
  */
 
 const SAVE_PREFIX = 'solitaire_';
+const SAVE_VERSION = 2; // Increment when save format changes
 
 export const SAVE_KEYS = {
   SETTINGS: SAVE_PREFIX + 'settings',
@@ -14,12 +14,16 @@ export const SAVE_KEYS = {
   ACHIEVEMENTS: SAVE_PREFIX + 'achievements',
   DAILY: SAVE_PREFIX + 'daily',
   GAME_STATE: SAVE_PREFIX + 'game_state',
-  COACH_SEEN: SAVE_PREFIX + 'coach_seen'
+  GAME_HISTORY: SAVE_PREFIX + 'game_history',
+  REPLAY_DATA: SAVE_PREFIX + 'replay_data',
+  COACH_SEEN: SAVE_PREFIX + 'coach_seen',
+  VERSION: SAVE_PREFIX + 'version'
 };
 
 export class SaveManager {
   constructor(adapter) {
     this.adapter = adapter;
+    this.version = SAVE_VERSION;
   }
 
   /**
@@ -31,11 +35,11 @@ export class SaveManager {
     try {
       if (this.adapter && typeof this.adapter.save === 'function') {
         this.adapter.save(key, data);
-      } else {
+      } else if (typeof localStorage !== 'undefined') {
         localStorage.setItem(key, JSON.stringify(data));
       }
     } catch (e) {
-      // Storage might be unavailable
+      // Storage might be unavailable (quota exceeded, private mode, etc.)
     }
   }
 
@@ -49,8 +53,11 @@ export class SaveManager {
       if (this.adapter && typeof this.adapter.load === 'function') {
         return this.adapter.load(key);
       }
-      const data = localStorage.getItem(key);
-      return data ? JSON.parse(data) : null;
+      if (typeof localStorage !== 'undefined') {
+        const data = localStorage.getItem(key);
+        return data ? JSON.parse(data) : null;
+      }
+      return null;
     } catch (e) {
       return null;
     }
@@ -62,10 +69,7 @@ export class SaveManager {
    */
   delete(key) {
     try {
-      if (this.adapter && typeof this.adapter.save === 'function') {
-        // Most adapters use localStorage under the hood
-        localStorage.removeItem(key);
-      } else {
+      if (typeof localStorage !== 'undefined') {
         localStorage.removeItem(key);
       }
     } catch (e) {
@@ -82,6 +86,7 @@ export class SaveManager {
     if (state.progression) this.save(SAVE_KEYS.PROGRESSION, state.progression);
     if (state.achievements) this.save(SAVE_KEYS.ACHIEVEMENTS, state.achievements);
     if (state.daily) this.save(SAVE_KEYS.DAILY, state.daily);
+    this.save(SAVE_KEYS.VERSION, { version: this.version });
   }
 
   /**
@@ -89,6 +94,9 @@ export class SaveManager {
    * @returns {object} - { stats, progression, achievements, daily }
    */
   loadAll() {
+    // Check version and migrate if needed
+    this._checkAndMigrate();
+
     return {
       stats: this.load(SAVE_KEYS.STATS),
       progression: this.load(SAVE_KEYS.PROGRESSION),
@@ -126,5 +134,122 @@ export class SaveManager {
    */
   hasSavedGame() {
     return this.load(SAVE_KEYS.GAME_STATE) !== null;
+  }
+
+  // --- Game History ---
+
+  /**
+   * Save a completed game to history.
+   * @param {object} gameResult - { won, score, moves, time, difficulty, date }
+   */
+  saveGameToHistory(gameResult) {
+    const history = this.loadGameHistory();
+    history.push({
+      ...gameResult,
+      date: gameResult.date || new Date().toISOString()
+    });
+    // Keep last 100 games
+    if (history.length > 100) {
+      history.splice(0, history.length - 100);
+    }
+    this.save(SAVE_KEYS.GAME_HISTORY, history);
+  }
+
+  /**
+   * Load game history.
+   * @returns {object[]}
+   */
+  loadGameHistory() {
+    return this.load(SAVE_KEYS.GAME_HISTORY) || [];
+  }
+
+  // --- Replay Data ---
+
+  /**
+   * Save replay data for a game.
+   * @param {string} id - unique game identifier
+   * @param {object} replayData
+   */
+  saveReplayData(id, replayData) {
+    const replays = this.load(SAVE_KEYS.REPLAY_DATA) || {};
+    replays[id] = replayData;
+    // Keep last 10 replays
+    const keys = Object.keys(replays);
+    if (keys.length > 10) {
+      delete replays[keys[0]];
+    }
+    this.save(SAVE_KEYS.REPLAY_DATA, replays);
+  }
+
+  /**
+   * Load replay data.
+   * @param {string} id
+   * @returns {object|null}
+   */
+  loadReplayData(id) {
+    const replays = this.load(SAVE_KEYS.REPLAY_DATA) || {};
+    return replays[id] || null;
+  }
+
+  // --- Settings ---
+
+  /**
+   * Save settings.
+   * @param {object} settings
+   */
+  saveSettings(settings) {
+    this.save(SAVE_KEYS.SETTINGS, {
+      ...settings,
+      version: this.version
+    });
+  }
+
+  /**
+   * Load settings.
+   * @returns {object|null}
+   */
+  loadSettings() {
+    return this.load(SAVE_KEYS.SETTINGS);
+  }
+
+  // --- Migration ---
+
+  /**
+   * Check save version and migrate data if needed.
+   */
+  _checkAndMigrate() {
+    const versionData = this.load(SAVE_KEYS.VERSION);
+    const savedVersion = versionData ? versionData.version : 1;
+
+    if (savedVersion < this.version) {
+      this._migrate(savedVersion, this.version);
+      this.save(SAVE_KEYS.VERSION, { version: this.version });
+    }
+  }
+
+  /**
+   * Run migrations between versions.
+   * @param {number} from
+   * @param {number} to
+   */
+  _migrate(from, to) {
+    // Version 1 -> 2: Add monthly tracking to daily, add game history
+    if (from < 2) {
+      const daily = this.load(SAVE_KEYS.DAILY);
+      if (daily && !daily.completedDates) {
+        daily.completedDates = [];
+        daily.monthlyCompleted = {};
+        this.save(SAVE_KEYS.DAILY, daily);
+      }
+    }
+  }
+
+  /**
+   * Clear all saved data (factory reset).
+   */
+  clearAll() {
+    for (const key of Object.values(SAVE_KEYS)) {
+      this.delete(key);
+    }
   }
 }

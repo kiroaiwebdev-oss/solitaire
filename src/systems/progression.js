@@ -1,6 +1,7 @@
 /**
- * Progression system: XP, levels, and currency.
+ * Progression system: XP, levels, currency, and milestone rewards.
  * XP earned per game with bonuses. Exponential level thresholds.
+ * Milestone rewards at specific levels.
  */
 
 const BASE_XP_PER_GAME = 10;
@@ -8,8 +9,22 @@ const WIN_BONUS_XP = 50;
 const SPEED_BONUS_THRESHOLD = 180; // seconds - under 3 min
 const SPEED_BONUS_XP = 30;
 const NO_UNDO_BONUS_XP = 20;
-const STREAK_BONUS_XP = 10; // per day of streak
+const STREAK_BONUS_XP = 10; // per day of streak (capped at 30)
 const COINS_PER_LEVEL = 100;
+
+/**
+ * Milestone rewards at specific levels.
+ */
+export const MILESTONES = {
+  5: { type: 'theme', reward: 'crimson', description: 'Crimson theme unlocked!' },
+  10: { type: 'theme', reward: 'oceanWave', description: 'Ocean Wave theme unlocked!' },
+  12: { type: 'theme', reward: 'celticKnot', description: 'Celtic Knot theme unlocked!' },
+  15: { type: 'theme', reward: 'geometricMandala', description: 'Geometric Mandala unlocked!' },
+  20: { type: 'theme', reward: 'emeraldForest', description: 'Emerald Forest theme unlocked!' },
+  25: { type: 'coins', reward: 500, description: 'Bonus 500 coins!' },
+  30: { type: 'coins', reward: 1000, description: 'Bonus 1000 coins!' },
+  50: { type: 'title', reward: 'Solitaire Master', description: 'Title: Solitaire Master!' }
+};
 
 /**
  * Calculate XP required to reach a given level.
@@ -81,12 +96,13 @@ export class Progression {
     this.level = 1;
     this.currency = 0;
     this.totalXpEarned = 0;
+    this.milestonesReached = [];
   }
 
   /**
    * Add XP and check for level-ups. Returns level-up info if leveled.
    * @param {number} amount
-   * @returns {{ leveled: boolean, newLevel: number, coinsEarned: number }}
+   * @returns {{ leveled: boolean, newLevel: number, coinsEarned: number, milestones: object[] }}
    */
   addXp(amount) {
     this.xp += amount;
@@ -94,23 +110,57 @@ export class Progression {
     const oldLevel = this.level;
     const newLevel = levelFromXp(this.xp);
     let coinsEarned = 0;
+    const newMilestones = [];
 
     if (newLevel > oldLevel) {
       const levelsGained = newLevel - oldLevel;
       coinsEarned = levelsGained * COINS_PER_LEVEL;
       this.currency += coinsEarned;
       this.level = newLevel;
-      return { leveled: true, newLevel, coinsEarned };
+
+      // Check milestones
+      for (let l = oldLevel + 1; l <= newLevel; l++) {
+        if (MILESTONES[l] && !this.milestonesReached.includes(l)) {
+          this.milestonesReached.push(l);
+          newMilestones.push({ level: l, ...MILESTONES[l] });
+          // Award bonus coins for coin milestones
+          if (MILESTONES[l].type === 'coins') {
+            this.currency += MILESTONES[l].reward;
+            coinsEarned += MILESTONES[l].reward;
+          }
+        }
+      }
+
+      return { leveled: true, newLevel, coinsEarned, milestones: newMilestones };
     }
 
     this.level = newLevel;
-    return { leveled: false, newLevel: this.level, coinsEarned: 0 };
+    return { leveled: false, newLevel: this.level, coinsEarned: 0, milestones: [] };
   }
 
+  /**
+   * Add currency directly.
+   * @param {number} amount
+   */
   addCurrency(amount) {
     this.currency += amount;
   }
 
+  /**
+   * Spend currency (returns false if insufficient).
+   * @param {number} amount
+   * @returns {boolean}
+   */
+  spendCurrency(amount) {
+    if (this.currency < amount) return false;
+    this.currency -= amount;
+    return true;
+  }
+
+  /**
+   * Get current level.
+   * @returns {number}
+   */
   getLevel() {
     return this.level;
   }
@@ -129,6 +179,15 @@ export class Progression {
   }
 
   /**
+   * Get XP needed for next level.
+   * @returns {number}
+   */
+  getXpToNextLevel() {
+    const nextLevelTotal = totalXpForLevel(this.level + 1);
+    return Math.max(0, nextLevelTotal - this.xp);
+  }
+
+  /**
    * Load state from saved data.
    * @param {object} data
    */
@@ -138,6 +197,7 @@ export class Progression {
     this.level = data.level || 1;
     this.currency = data.currency || 0;
     this.totalXpEarned = data.totalXpEarned || 0;
+    this.milestonesReached = data.milestonesReached || [];
     // Recalculate level from XP for safety
     this.level = levelFromXp(this.xp);
   }
@@ -151,7 +211,8 @@ export class Progression {
       xp: this.xp,
       level: this.level,
       currency: this.currency,
-      totalXpEarned: this.totalXpEarned
+      totalXpEarned: this.totalXpEarned,
+      milestonesReached: this.milestonesReached
     };
   }
 
@@ -160,5 +221,6 @@ export class Progression {
     this.level = 1;
     this.currency = 0;
     this.totalXpEarned = 0;
+    this.milestonesReached = [];
   }
 }
