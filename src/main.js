@@ -125,7 +125,7 @@ class App {
       this.screens.setDailyData({
         streak: this.dailyChallenge.getStreak(),
         completed: this.dailyChallenge.isCompleted(),
-        calendar: this.dailyChallenge.getCalendarMonth ? this.dailyChallenge.getCalendarMonth() : [],
+        calendar: this.dailyChallenge.getCalendarMonth ? this.dailyChallenge.getCalendarMonth(new Date().getFullYear(), new Date().getMonth()) : [],
         totalCompleted: this.dailyChallenge.totalCompleted || 0
       });
     }
@@ -288,20 +288,18 @@ class App {
 
   _onKeyboard(e) {
     if (!this.gameActive) return;
-    const key = e.key;
-    const ctrl = e.ctrlKey || e.metaKey;
-    const shift = e.shiftKey;
-
-    if (ctrl && key === 'z' && !shift) { this.game.undo(); this.usedUndoThisGame = true; this._positionCards(); }
-    else if ((ctrl && key === 'z' && shift) || (ctrl && key === 'y')) { if (this.game.redo) this.game.redo(); this._positionCards(); }
-    else if (key === 'h' || key === 'H') { if (this.game.getNextHint) this.game.getNextHint(); }
-    else if (key === 'n' || key === 'N') { this._handleScreenAction('modeSelect'); }
-    else if (key === 'a' || key === 'A') { if (this.game.canAutoComplete && this.game.canAutoComplete()) this.game.startAutoComplete(); }
-    else if (key === 'Escape') {
-      if (this.screens.isActive()) this._handleScreenAction('resume');
-      else { this.game.state = GAME_STATES.PAUSED; this.screens.show('pause'); }
+    switch (e.action) {
+      case 'undo': this.game.undo(); this.usedUndoThisGame = true; this._positionCards(); break;
+      case 'redo': if (this.game.redo) this.game.redo(); this._positionCards(); break;
+      case 'hint': if (this.game.getNextHint) this.game.getNextHint(); break;
+      case 'newGame': this._handleScreenAction('modeSelect'); break;
+      case 'autoComplete': if (this.game.canAutoComplete && this.game.canAutoComplete()) this.game.startAutoComplete(); break;
+      case 'pause':
+        if (this.screens.isActive()) this._handleScreenAction('resume');
+        else { this.game.state = GAME_STATES.PAUSED; this.screens.show('pause'); }
+        break;
+      case 'toggle': this.game.drawFromStock(); this._positionCards(); break;
     }
-    else if (key === ' ') { this.game.drawFromStock(); this._positionCards(); }
   }
 
   _startNewGame(hardMode, options = {}) {
