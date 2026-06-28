@@ -61,9 +61,9 @@ class App {
 
     this.layout = {
       cardWidth: 70, cardHeight: 100,
-      marginX: 10, marginY: 10,
+      marginX: 10, marginY: 10, colGap: 10, wasteGap: 12,
       stackOffsetY: 20, stackOffsetFaceDown: 5,
-      topRowY: 55, tableauY: 180, padding: 10
+      topRowY: 55, tableauY: 180, padding: 10, hudBarH: 50
     };
 
     this.audioInitialized = false;
@@ -353,35 +353,133 @@ class App {
     if (!coachSeen) { this.screens.showCoachMarks(); this.saveManager.save(SAVE_KEY_COACH, true); }
   }
 
+  /**
+   * Responsive board layout engine.
+   *
+   * Card size is derived from BOTH constraints and the smallest is taken:
+   *   - width  : 7 columns + 6 inter-column gaps + 2 side margins must fit `w`
+   *   - height : HUD bar + top margin + foundations/stock row + row gap +
+   *              a reference tableau column (6 face-down + 1 face-up, the
+   *              tallest at deal time) must fit `h`
+   *   - cap    : a viewport-scaled maximum so cards never become absurd on
+   *              large desktops / ultrawide.
+   *
+   * Gaps and margins are proportional to the viewport (no hard-coded 80/10/20/55).
+   *
+   * Vertically the whole playfield block (top row + row gap + the *live*
+   * tallest column) is centred in the space under the HUD so it fills the
+   * screen and stays balanced instead of being pinned to the top. As columns
+   * grow during play the block rises toward a comfortable top anchor, and the
+   * face-up/face-down fan offsets shrink (clamped) so the tallest column can
+   * never overflow past the bottom.
+   */
   _computeLayout() {
     const w = this.renderer.logicalWidth;
     const h = this.renderer.logicalHeight;
-    const maxCardWidth = (w - 80) / 7.5;
-    this.layout.cardWidth = Math.min(maxCardWidth, 75);
-    this.layout.cardHeight = this.layout.cardWidth * (100 / 70);
-    this.layout.marginX = (w - (this.layout.cardWidth * 7 + 10 * 6)) / 2;
-    if (this.layout.marginX < 5) this.layout.marginX = 5;
-    this.layout.topRowY = 55;
-    this.layout.tableauY = this.layout.topRowY + this.layout.cardHeight + 20;
-    this.layout.stackOffsetY = Math.max(this.layout.cardHeight * 0.2, 15);
-    this.layout.stackOffsetFaceDown = Math.max(this.layout.cardHeight * 0.06, 4);
+    const ASPECT = 100 / 70;
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-    // Dynamic stack offset to prevent overflow
+    // --- HUD bar height (mirrors HUD.render so the board never overlaps it) ---
+    const isSmall = w < 500;
+    const hudBarH = (isSmall ? 28 : 34) + 16; // 44 (mobile) / 50 (larger)
+    this.layout.hudBarH = hudBarH;
+
+    // --- Proportional horizontal gaps & margins ---
+    const colGap = clamp(Math.round(w * 0.018), 4, 16);
+    const sideMargin = clamp(Math.round(w * 0.03), 6, 64);
+    this.layout.colGap = colGap;
+    this.layout.wasteGap = colGap;
+
+    // --- Fan ratios (relative to card height) ---
+    const FD_RATIO = 0.20;   // compact face-down offset
+    const FU_RATIO = 0.34;   // generous face-up fan offset
+    const ROWGAP_RATIO = 0.42;
+
+    // --- Width-constrained card width ---
+    const cwWidth = (w - 2 * sideMargin - 6 * colGap) / 7;
+
+    // --- Vertical budget ---
+    const topPad = clamp(Math.round(h * 0.015), 6, 24);
+    const bottomMargin = clamp(Math.round(h * 0.022), 8, 48);
+    const playTop = hudBarH + topPad;          // earliest the top row may start
+    const availH = h - playTop - bottomMargin; // space available for the board block
+
+    // --- Height-constrained card width (uses a STABLE reference column so the
+    //     card size does not jump around as columns grow during play) ---
+    const refColFactor = 1 + 6 * FD_RATIO;     // 6 face-down + 1 face-up top card
+    const refBlockFactor = 1 + ROWGAP_RATIO + refColFactor; // top row + gap + column
+    const cwHeight = (availH / refBlockFactor) / ASPECT;
+
+    // --- Viewport-scaled maximum (generous on mobile, bounded on big screens) ---
+    const cap = clamp(Math.min(w, h) * 0.20, 64, 124);
+
+    const cardWidth = clamp(Math.min(cwWidth, cwHeight, cap), 20, 400);
+    const cardHeight = cardWidth * ASPECT;
+    this.layout.cardWidth = cardWidth;
+    this.layout.cardHeight = cardHeight;
+
+    // --- Centre the 7 columns horizontally ---
+    const boardW = cardWidth * 7 + colGap * 6;
+    this.layout.marginX = Math.max(4, (w - boardW) / 2);
+
+    // --- Base fan offsets & row gap ---
+    let fdOff = cardHeight * FD_RATIO;
+    let fuOff = cardHeight * FU_RATIO;
+    let rowGap = cardHeight * ROWGAP_RATIO;
+
+    // --- Live tallest column (for vertical fill + overflow protection) ---
+    let faceDown = 6, faceUp = 1; // default to the deal-time tallest column
     if (this.game && this.game.tableau) {
-      let maxLen = 0;
-      for (const col of this.game.tableau.columns) maxLen = Math.max(maxLen, col.length);
-      const available = h - this.layout.tableauY - 20;
-      const needed = maxLen * this.layout.stackOffsetY;
-      if (needed > available && maxLen > 3) {
-        this.layout.stackOffsetY = Math.max(available / maxLen, 10);
+      let bestSpan = -1, fD = 0, fU = 0;
+      for (const col of this.game.tableau.columns) {
+        let cd = 0, cu = 0;
+        for (const c of col) { if (c.faceUp) cu++; else cd++; }
+        const span = cd * FD_RATIO + Math.max(0, cu - 1) * FU_RATIO;
+        if (span > bestSpan) { bestSpan = span; fD = cd; fU = cu; }
       }
+      if (fD + fU > 0) { faceDown = fD; faceUp = fU; }
     }
+
+    // Height of the tallest column with the base offsets.
+    const columnSpan = () => faceDown * fdOff + Math.max(0, faceUp - 1) * fuOff;
+    let blockHeight = cardHeight + rowGap + cardHeight + columnSpan();
+
+    // --- Shrink offsets if the live tallest column would overflow the bottom ---
+    if (blockHeight > availH) {
+      const fixed = 2 * cardHeight;                 // top-row card + column's first card
+      const flexible = rowGap + columnSpan();       // gaps + fanned offsets
+      const allowed = availH - fixed;
+      if (allowed > 0 && flexible > 0) {
+        const s = Math.max(0.18, allowed / flexible);
+        rowGap *= s; fdOff *= s; fuOff *= s;
+      }
+      // Enforce sane minimums so cards still overlap and remain tappable.
+      fdOff = Math.max(fdOff, 3);
+      fuOff = Math.max(fuOff, 10);
+      rowGap = Math.max(rowGap, cardHeight * 0.14);
+      blockHeight = cardHeight + rowGap + cardHeight + columnSpan();
+    }
+
+    // --- Vertical placement: centre the block in the available space so it
+    //     fills the screen; anchor to the top once it no longer fits. ---
+    let topRowY;
+    if (blockHeight >= availH) {
+      topRowY = playTop;
+    } else {
+      topRowY = playTop + (availH - blockHeight) * 0.5;
+    }
+
+    this.layout.stackOffsetY = fuOff;
+    this.layout.stackOffsetFaceDown = fdOff;
+    this.layout.topRowY = topRowY;
+    this.layout.tableauY = topRowY + cardHeight + rowGap;
   }
 
   _positionCards() {
     const layout = this.layout;
+    const pitch = layout.cardWidth + layout.colGap;
     for (let col = 0; col < 7; col++) {
-      const x = layout.marginX + col * (layout.cardWidth + 10);
+      const x = layout.marginX + col * pitch;
       let y = layout.tableauY;
       for (let row = 0; row < this.game.tableau.columns[col].length; row++) {
         const card = this.game.tableau.columns[col][row];
@@ -394,13 +492,13 @@ class App {
     const stockX = layout.marginX;
     const stockY = layout.topRowY;
     for (const card of this.game.stock.stock) { card.setPosition(stockX, stockY); card.width = layout.cardWidth; card.height = layout.cardHeight; }
-    const wasteX = layout.marginX + layout.cardWidth + 15;
+    const wasteX = layout.marginX + layout.cardWidth + layout.wasteGap;
     for (const card of this.game.stock.waste) { card.setPosition(wasteX, stockY); card.width = layout.cardWidth; card.height = layout.cardHeight; }
   }
 
-  _getFoundationX(p) { return this.layout.marginX + (3 + p) * (this.layout.cardWidth + 10); }
+  _getFoundationX(p) { return this.layout.marginX + (3 + p) * (this.layout.cardWidth + this.layout.colGap); }
   _getFoundationY() { return this.layout.topRowY; }
-  _getTableauX(col) { return this.layout.marginX + col * (this.layout.cardWidth + 10); }
+  _getTableauX(col) { return this.layout.marginX + col * (this.layout.cardWidth + this.layout.colGap); }
 
   _ensureAudio() {
     if (!this.audioInitialized) { this.audio.init(); this.audioInitialized = true; }
@@ -448,7 +546,7 @@ class App {
       return;
     }
 
-    const wasteX = layout.marginX + layout.cardWidth + 15;
+    const wasteX = layout.marginX + layout.cardWidth + layout.wasteGap;
     const wasteCard = this.game.stock.topWaste();
     if (wasteCard && wasteCard.containsPoint(x, y)) {
       this.game.drag.start([wasteCard], x, y, { type: 'waste', index: 0 });
@@ -1241,7 +1339,7 @@ class App {
     }
 
     // Waste pile
-    const wasteX = layout.marginX + layout.cardWidth + 15;
+    const wasteX = layout.marginX + layout.cardWidth + layout.wasteGap;
     const visibleWaste = this.game.stock.visibleWaste();
     if (visibleWaste.length === 0) {
       this.renderer.drawRoundedRect(wasteX, stockY, layout.cardWidth, layout.cardHeight, 4, 'rgba(255,255,255,0.01)', 'rgba(255,255,255,0.06)', 1);

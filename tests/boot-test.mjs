@@ -587,38 +587,147 @@ test('in-progress game state saves and Continue restores it', () => {
 // ---------------------------------------------------------------------------
 console.log('\n[Responsive Layout Sanity]');
 
-const VIEWPORTS = [
+// Portrait phones/tablets: the board must FILL the vertical space (not be
+// crammed into the top third) while fitting horizontally and never clipping.
+const PORTRAIT_VIEWPORTS = [
   [320, 568],  // small phone portrait
-  [375, 667],
-  [414, 896],
+  [375, 667],  // iPhone 8 portrait
+  [390, 844],  // iPhone 12/13/14 portrait
+  [414, 896],  // large phone portrait
+  [360, 640],  // common Android portrait
   [768, 1024], // tablet portrait
-  [667, 375],  // phone landscape
-  [1024, 768], // tablet landscape
-  [1920, 1080],// desktop
-  [2560, 1080],// ultrawide
 ];
 
-for (const [w, h] of VIEWPORTS) {
-  test(`layout fits at ${w}x${h}`, () => {
-    app.renderer.canvas.width = w; app.renderer.canvas.height = h;
-    app.renderer.width = w; app.renderer.height = h; app.renderer.dpr = 1;
-    app._handleScreenAction('startEasy');
+// Landscape / desktop / ultrawide: must fit and never overflow; cards bounded.
+const WIDE_VIEWPORTS = [
+  [667, 375],  // phone landscape
+  [844, 390],  // phone landscape (tall device rotated)
+  [1024, 768], // tablet landscape
+  [1366, 768], // laptop
+  [1920, 1080],// desktop
+  [2560, 1080],// ultrawide
+  [480, 360],  // small embedded iframe
+];
+
+// Compute the on-screen bottom of the tallest tableau column using EXACTLY the
+// same fan logic the renderer uses (face-up vs face-down offsets), so the
+// assertion reflects what is actually drawn.
+function tallestColumnBottom(app, L) {
+  let bottom = L.tableauY + L.cardHeight; // empty-column placeholder height
+  for (const col of app.game.tableau.columns) {
+    let y = L.tableauY;
+    for (let i = 0; i < col.length; i++) {
+      const c = col[i];
+      if (i === col.length - 1) bottom = Math.max(bottom, y + L.cardHeight);
+      y += c.faceUp ? L.stackOffsetY : L.stackOffsetFaceDown;
+    }
+  }
+  return bottom;
+}
+
+function applyViewport(app, w, h) {
+  app.renderer.canvas.width = w; app.renderer.canvas.height = h;
+  app.renderer.width = w; app.renderer.height = h; app.renderer.dpr = 1;
+}
+
+for (const [w, h] of PORTRAIT_VIEWPORTS) {
+  test(`portrait layout FILLS the screen + fits at ${w}x${h}`, () => {
+    applyViewport(app, w, h);
+    app._handleScreenAction('startEasy'); // fresh deal: tallest column = 7 cards
     app._computeLayout();
     const L = app.layout;
-    const rightEdge = L.marginX + L.cardWidth * 7 + 10 * 6;
+
+    // --- Card sizing is sane and uses a healthy fraction of the width ---
     assert(L.cardWidth > 0 && L.cardHeight > 0, 'card dimensions positive');
     assert(L.marginX >= 0, 'left margin non-negative');
-    assert(rightEdge <= w + 1, `7 columns fit within width (${rightEdge.toFixed(1)} <= ${w})`);
-    // Tallest column must fit vertically with the dynamic stack offset.
-    let maxLen = 0;
-    for (const col of app.game.tableau.columns) maxLen = Math.max(maxLen, col.length);
-    const bottom = L.tableauY + (maxLen - 1) * L.stackOffsetY + L.cardHeight;
-    assert(bottom <= h + L.cardHeight, `tallest column bottom within sane bounds at ${w}x${h}`);
+    const cardsW = L.cardWidth * 7;
+    assert(cardsW >= w * 0.6, `cards span a reasonable fraction of width (${(cardsW / w * 100).toFixed(0)}% >= 60%)`);
+    assert(cardsW <= w * 0.96, `cards do not exceed the width budget (${(cardsW / w * 100).toFixed(0)}% <= 96%)`);
+
+    // --- 7 columns + gaps + margins fit within the width (no horizontal clip) ---
+    const rightEdge = L.marginX + L.cardWidth * 7 + L.colGap * 6;
+    assert(rightEdge <= w + 1, `7 columns + gaps fit within width (${rightEdge.toFixed(1)} <= ${w})`);
+
+    // --- Top row sits BELOW the HUD bar (never overlaps it) ---
+    assert(L.topRowY >= L.hudBarH, `top row below HUD bar (${L.topRowY.toFixed(0)} >= ${L.hudBarH})`);
+
+    // --- Top row and tableau are separated (no overlap of the rows) ---
+    assert(L.tableauY >= L.topRowY + L.cardHeight, 'tableau starts below the top row');
+
+    // --- The board FILLS the vertical space: the tallest column must reach
+    //     well past the top third (this is the core fix being guarded). ---
+    const bottom = tallestColumnBottom(app, L);
+    assert(bottom >= h * 0.55,
+      `board fills vertical space — tallest column bottom past 55% (${(bottom / h * 100).toFixed(0)}% of ${h})`);
+
+    // --- ...but never overflows past the bottom of the screen (no clipping) ---
+    assert(bottom <= h, `board does not overflow the bottom (${bottom.toFixed(0)} <= ${h})`);
+
     app._render(0.016);
     app.screens.activeScreen = 'mainMenu'; app.screens._buildButtons(); app.screens.render();
     assert(true, 'render at this viewport did not throw');
   });
 }
+
+for (const [w, h] of WIDE_VIEWPORTS) {
+  test(`landscape/desktop layout fits + bounded cards at ${w}x${h}`, () => {
+    applyViewport(app, w, h);
+    app._handleScreenAction('startEasy');
+    app._computeLayout();
+    const L = app.layout;
+
+    assert(L.cardWidth > 0 && L.cardHeight > 0, 'card dimensions positive');
+    assert(L.marginX >= 0, 'left margin non-negative');
+
+    // Fits horizontally.
+    const rightEdge = L.marginX + L.cardWidth * 7 + L.colGap * 6;
+    assert(rightEdge <= w + 1, `7 columns + gaps fit within width (${rightEdge.toFixed(1)} <= ${w})`);
+
+    // Top row below HUD, rows separated.
+    assert(L.topRowY >= L.hudBarH, `top row below HUD bar (${L.topRowY.toFixed(0)} >= ${L.hudBarH})`);
+    assert(L.tableauY >= L.topRowY + L.cardHeight, 'tableau starts below the top row');
+
+    // Never overflows the bottom.
+    const bottom = tallestColumnBottom(app, L);
+    assert(bottom <= h + 1, `board does not overflow the bottom (${bottom.toFixed(0)} <= ${h})`);
+
+    // Cards are bounded so they never become absurd on big screens.
+    assert(L.cardWidth <= 130, `card width capped on large screens (${L.cardWidth.toFixed(1)} <= 130)`);
+
+    app._render(0.016);
+    assert(true, 'render at this viewport did not throw');
+  });
+}
+
+// Drag/tap hit-testing must line up with the new layout getters: a card placed
+// in a column reports a containsPoint hit at its drawn position, and the
+// foundation/tableau X getters agree with where cards are positioned.
+test('hit-testing aligns with the responsive layout getters', () => {
+  applyViewport(app, 390, 844);
+  app._handleScreenAction('startEasy');
+  app._computeLayout();
+  app._positionCards();
+  const L = app.layout;
+  // Every tableau column's drawn X must equal the getter used by drop/tap code.
+  for (let col = 0; col < 7; col++) {
+    const colX = app._getTableauX(col);
+    const column = app.game.tableau.columns[col];
+    if (column.length) {
+      assert(Math.abs(column[0].x - colX) < 0.001, `column ${col} card X matches _getTableauX`);
+      // The top (face-up) card reports a hit at its own centre.
+      const top = column[column.length - 1];
+      assert(top.containsPoint(top.x + L.cardWidth / 2, top.y + L.cardHeight / 2),
+        `column ${col} top card hit-tests at its drawn position`);
+    }
+  }
+  // Foundation getter X stays within the board and aligns to a column pitch.
+  for (let p = 0; p < 4; p++) {
+    const fx = app._getFoundationX(p);
+    assert(fx + L.cardWidth <= 390 + 1, `foundation ${p} fits within width`);
+    assert(Math.abs(fx - (L.marginX + (3 + p) * (L.cardWidth + L.colGap))) < 0.001,
+      `foundation ${p} X matches column pitch`);
+  }
+});
 
 // ---------------------------------------------------------------------------
 console.log('\n[UI Overflow / Overlap Audit]');
