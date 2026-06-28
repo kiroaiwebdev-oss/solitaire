@@ -2,7 +2,7 @@
   "id": "FEAT-004",
   "type": "feat",
   "description": "Platform adapters, build system, and deployment. Creates the monetization-ready platform adapter seam with implementations for all 5 platforms, the build script that generates per-platform zips, and DEPLOY.md documentation.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create src/platform/adapter.js - base PlatformAdapter class/interface with methods: init(), showBannerAd(), showInterstitialAd(), showRewardedAd(callback), gameplayStart(), gameplayStop(), happyTime(), saveData(key, data), loadData(key), isAdblocked(), muteAudio(), unmuteAudio(). All methods have safe no-op defaults.",
     "Create src/platform/sdkUtil.js - utility functions: waitForGlobal(name, timeout) polls for SDK global, safe(fn) wraps calls in try-catch with fallback, audioMuteHelper(audioContext, muted) for SDK-triggered mute, fallbackAdOverlay() shows a simple 'Continue in X seconds' overlay when ads blocked",
@@ -31,5 +31,5 @@
     "node tests/selftest.mjs passes platform adapter tests (adapter instantiation, method existence, detection logic)"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 5 platform adapters created with full interface. Build script generates 5 platform dirs + zips successfully. All 185 selftest and 89 domtest pass. ZIP uses custom implementation with Node.js zlib deflateRawSync. Each platform index.html has SDK script, __PLATFORM__ set, and cache-bust version stamped. config/achievements.js added to filesToCopy in build.mjs."
 }
