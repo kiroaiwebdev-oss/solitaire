@@ -40,7 +40,7 @@ function test(name, fn) {
   }
 }
 
-console.log('=== Klondike Solitaire Self-Test ===\n');
+console.log('=== Pipvale Solitaire Self-Test ===\n');
 
 // --- Card Tests ---
 console.log('[Card]');

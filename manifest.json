@@ -1,7 +1,7 @@
 {
-  "name": "Premium Solitaire",
-  "short_name": "Solitaire",
-  "description": "Premium Klondike Solitaire card game",
+  "name": "Pipvale Solitaire",
+  "short_name": "Pipvale",
+  "description": "Pipvale Solitaire - a classic Klondike solitaire card game",
   "start_url": "./index.html",
   "display": "standalone",
   "orientation": "any",

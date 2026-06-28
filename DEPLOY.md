@@ -1,8 +1,8 @@
-# Premium Solitaire - Deployment Guide
+# Pipvale Solitaire - Deployment Guide
 
 ## Overview
 
-Premium Solitaire is a Canvas-based Klondike Solitaire game with PWA support.
+Pipvale Solitaire is a Canvas-based Klondike Solitaire game with PWA support.
 All assets are programmatically generated - no external dependencies, CDNs, npm
 packages, web fonts, or analytics. The only external script that ever loads is
 the portal SDK injected per build (and only on that portal's build).

@@ -9,7 +9,7 @@ import { easeOutCubic, easeOutBounce, clamp } from '../core/math.js';
 import { THEMES, DEFAULT_THEME, TABLE_THEMES, CARD_FACE_STYLES } from '../config/themes.js';
 import { SCORING } from '../config/scoring.js';
 import { ACHIEVEMENT_DEFS, ACHIEVEMENT_CATEGORIES } from '../config/achievements.js';
-import { drawFittedLabel, fitBoxLabel, wrapText, FONT_FAMILY } from './text-fit.js';
+import { drawFittedLabel, fitBoxLabel, wrapText, fitFontSize, FONT_FAMILY } from './text-fit.js';
 
 /**
  * Cohesive design system: deep-green felt, gold accents, soft glass panels.
@@ -678,10 +678,12 @@ export class Screens {
     // Title
     const titleSize = Math.min(w * 0.08, 40);
     ctx.save();
-    ctx.font = 'bold ' + titleSize + 'px ' + UI.font;
+    // Shrink-to-fit so the brand name never clips on narrow screens.
+    const loadingTitleSize = fitFontSize(ctx, 'Pipvale Solitaire', w * 0.9, titleSize, 12, 'bold', UI.font);
+    ctx.font = 'bold ' + loadingTitleSize + 'px ' + UI.font;
     ctx.fillStyle = UI.gold;
     ctx.shadowColor = 'rgba(232,198,98,0.3)'; ctx.shadowBlur = 16;
-    ctx.fillText('Premium Solitaire', w / 2, h * 0.55);
+    ctx.fillText('Pipvale Solitaire', w / 2, h * 0.55);
     ctx.restore();
 
     // Progress bar
@@ -701,10 +703,13 @@ export class Screens {
 
     // Title with soft gold glow.
     ctx.save();
-    ctx.font = `bold ${Math.min(t.title * 1.15, 52)}px ${UI.font}`;
+    // Shrink-to-fit so the brand name never clips on narrow (320px) screens.
+    const menuTitleBase = Math.min(t.title * 1.15, 52);
+    const menuTitleSize = fitFontSize(ctx, 'Pipvale Solitaire', w * 0.9, menuTitleBase, 14, 'bold', UI.font);
+    ctx.font = `bold ${menuTitleSize}px ${UI.font}`;
     ctx.fillStyle = UI.gold;
     ctx.shadowColor = 'rgba(232,198,98,0.35)'; ctx.shadowBlur = 18;
-    ctx.fillText('Premium Solitaire', w / 2, h * 0.135);
+    ctx.fillText('Pipvale Solitaire', w / 2, h * 0.135);
     ctx.restore();
 
     // Subtitle.

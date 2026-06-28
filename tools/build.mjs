@@ -165,7 +165,7 @@ function crc32(buf) {
   return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
-console.log('=== Building Premium Solitaire ===');
+console.log('=== Building Pipvale Solitaire ===');
 console.log(`Build version: ${buildVersion}\n`);
 
 const distDir = join(rootDir, 'dist');

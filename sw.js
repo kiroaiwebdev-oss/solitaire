@@ -1,9 +1,9 @@
 /**
- * Service Worker for Premium Solitaire.
+ * Service Worker for Pipvale Solitaire.
  * Cache-first strategy for offline play.
  */
 
-const CACHE_NAME = 'solitaire-v3';
+const CACHE_NAME = 'pipvale-v1';
 
 const FILES_TO_CACHE = [
   './index.html',
