@@ -231,12 +231,29 @@ class App {
   }
 
   _initApp() {
+    // Check for saved game and enable Continue button
+    if (this.saveManager.hasSavedGame()) {
+      this.screens.setHasSavedGame(true);
+    }
+
     // Show main menu on start
     this.screens.show('mainMenu');
 
     this.input.on('pointerdown', (coords) => this._onPointerDown(coords));
     this.input.on('pointermove', (coords) => this._onPointerMove(coords));
     this.input.on('pointerup', (coords) => this._onPointerUp(coords));
+
+    // Save game state on page unload
+    window.addEventListener('beforeunload', () => {
+      if (this.gameActive && this.game && this.game.state === GAME_STATES.PLAYING) {
+        this._saveGameState();
+      }
+    });
+
+    // Regenerate felt texture on resize
+    window.addEventListener('resize', () => {
+      this._feltCanvas = null;
+    });
 
     this.loop.start(
       (dt) => this._update(dt),
@@ -458,11 +475,13 @@ class App {
 
     const { x, y } = coords;
     const layout = this.layout;
-    const dragData = this.game.drag.end();
-    const cards = dragData.cards;
-    const source = dragData.source;
+    const cards = this.game.drag.cards;
+    const source = this.game.drag.source;
 
-    if (cards.length === 0) return;
+    if (cards.length === 0) {
+      this.game.drag.end();
+      return;
+    }
 
     const firstCard = cards[0];
     let moved = false;
@@ -475,6 +494,7 @@ class App {
         if (x >= fx && x <= fx + layout.cardWidth &&
             y >= fy && y <= fy + layout.cardHeight) {
           if (this.game.foundation.canPlace(firstCard, p)) {
+            this.game.drag.end();
             this._executeDrop(source, cards, { type: 'foundation', index: p });
             moved = true;
             break;
@@ -496,6 +516,7 @@ class App {
         if (x >= colX && x <= colX + layout.cardWidth &&
             y >= layout.tableauY - 10 && y <= colBottom + 30) {
           if (this.game.tableau.canPlace(firstCard, col)) {
+            this.game.drag.end();
             this._executeDrop(source, cards, { type: 'tableau', index: col });
             moved = true;
             break;
@@ -504,9 +525,9 @@ class App {
       }
     }
 
-    // If not moved, snap back
+    // If not moved, snap back with animation
     if (!moved) {
-      this._returnCards(source, cards);
+      this.game.drag.snapBack();
       if (this.audio) this.audio.play('error');
     }
 
@@ -520,6 +541,16 @@ class App {
 
   _executeDrop(source, cards, target) {
     this.game.saveUndoState();
+
+    // Track whether new top card was face-down before removal (for reveal bonus)
+    let sourceTopWasFaceDown = false;
+    if (source.type === 'tableau') {
+      const col = this.game.tableau.columns[source.index];
+      const newTopIndex = source.cardIndex - 1;
+      if (newTopIndex >= 0 && !col[newTopIndex].faceUp) {
+        sourceTopWasFaceDown = true;
+      }
+    }
 
     // Remove from source
     if (source.type === 'waste') {
@@ -547,12 +578,9 @@ class App {
       } else if (source.type === 'foundation') {
         this.game.score = Math.max(0, this.game.score + SCORING.FOUNDATION_TO_TABLEAU);
       }
-      // Check if we revealed a card
-      if (source.type === 'tableau') {
-        const col = this.game.tableau.columns[source.index];
-        if (col.length > 0 && col[col.length - 1].faceUp) {
-          this.game.score += SCORING.REVEAL_CARD;
-        }
+      // Award reveal bonus only if we actually flipped a face-down card
+      if (source.type === 'tableau' && sourceTopWasFaceDown) {
+        this.game.score += SCORING.REVEAL_CARD;
       }
       this.audio.play('cardPlace');
     }
@@ -566,6 +594,115 @@ class App {
     }
   }
 
+  _saveGameState() {
+    if (!this.game || this.game.state !== GAME_STATES.PLAYING) return;
+    const state = {
+      tableauCols: this.game.tableau.columns.map(col =>
+        col.map(c => ({ suit: c.suit, rank: c.rank, faceUp: c.faceUp }))
+      ),
+      foundationPiles: this.game.foundation.piles.map(pile =>
+        pile.map(c => ({ suit: c.suit, rank: c.rank, faceUp: c.faceUp }))
+      ),
+      stockCards: this.game.stock.stock.map(c => ({ suit: c.suit, rank: c.rank, faceUp: c.faceUp })),
+      wasteCards: this.game.stock.waste.map(c => ({ suit: c.suit, rank: c.rank, faceUp: c.faceUp })),
+      score: this.game.score,
+      moves: this.game.moves,
+      timer: this.game.timer,
+      drawCount: this.game.drawCount,
+      hardMode: this.game.hardMode,
+      hardModeTime: this.game.hardModeTime
+    };
+    this.saveManager.saveGameState(state);
+  }
+
+  _restoreGameState() {
+    const state = this.saveManager.loadGameState();
+    if (!state) return false;
+
+    this.game = new Game({
+      drawCount: state.drawCount || 1,
+      audio: this.audio,
+      hardMode: state.hardMode || false,
+      hardModeTime: state.hardModeTime || 600
+    });
+    this.game.onWin = (score, moves, time) => {
+      this.showingWinAnim = true;
+      setTimeout(() => {
+        this.screens.show('win', { score, moves, time });
+        this._recordWin(time, moves);
+      }, 3000);
+    };
+    this.game.onLose = () => {
+      this.screens.show('gameOver', { score: this.game.score });
+      this._recordLoss();
+    };
+
+    // Create a full deck and deal so allCards is populated
+    this.game.deal();
+
+    // Now restore state from snapshot
+    const allCards = [...this.game.allCards];
+    const findCard = (suit, rank) => allCards.find(c => c.suit === suit && c.rank === rank);
+
+    this.game.tableau.columns = [[], [], [], [], [], [], []];
+    this.game.foundation.piles = [[], [], [], []];
+    this.game.stock.stock = [];
+    this.game.stock.waste = [];
+
+    for (let c = 0; c < 7; c++) {
+      for (const cardData of (state.tableauCols[c] || [])) {
+        const card = findCard(cardData.suit, cardData.rank);
+        if (card) {
+          card.faceUp = cardData.faceUp;
+          this.game.tableau.columns[c].push(card);
+        }
+      }
+    }
+    for (let p = 0; p < 4; p++) {
+      for (const cardData of (state.foundationPiles[p] || [])) {
+        const card = findCard(cardData.suit, cardData.rank);
+        if (card) {
+          card.faceUp = cardData.faceUp;
+          this.game.foundation.piles[p].push(card);
+        }
+      }
+    }
+    for (const cardData of (state.stockCards || [])) {
+      const card = findCard(cardData.suit, cardData.rank);
+      if (card) {
+        card.faceUp = cardData.faceUp;
+        this.game.stock.stock.push(card);
+      }
+    }
+    for (const cardData of (state.wasteCards || [])) {
+      const card = findCard(cardData.suit, cardData.rank);
+      if (card) {
+        card.faceUp = cardData.faceUp;
+        this.game.stock.waste.push(card);
+      }
+    }
+
+    this.game.score = state.score || 0;
+    this.game.moves = state.moves || 0;
+    this.game.timer = state.timer || 0;
+    this.game.state = GAME_STATES.PLAYING;
+
+    this.hud = new HUD(this.game, this.renderer);
+    this._computeLayout();
+    this._positionCards();
+    this.gameActive = true;
+    this.showingWinAnim = false;
+    this.usedUndoThisGame = false;
+    this.isDailyChallenge = false;
+    this.screens.hide();
+
+    // Clear saved game state after restoring
+    this.saveManager.clearGameState();
+    this.screens.setHasSavedGame(false);
+
+    return true;
+  }
+
   _handleScreenAction(action) {
     if (!action) return;
     switch (action) {
@@ -573,7 +710,7 @@ class App {
         this.screens.show('modeSelect');
         break;
       case 'continue':
-        this.screens.hide();
+        this._restoreGameState();
         break;
       case 'settings':
         this.screens.show('settings');
@@ -849,13 +986,27 @@ class App {
   }
 
   _drawFelt(ctx) {
+    // Use cached offscreen canvas for felt texture
+    if (!this._feltCanvas) {
+      this._regenerateFeltCanvas();
+    }
+    ctx.drawImage(this._feltCanvas, 0, 0);
+  }
+
+  _regenerateFeltCanvas() {
     const w = this.renderer.logicalWidth;
     const h = this.renderer.logicalHeight;
-    ctx.fillStyle = 'rgba(0,0,0,0.02)';
+    this._feltCanvas = document.createElement('canvas');
+    this._feltCanvas.width = w;
+    this._feltCanvas.height = h;
+    this._feltCachedWidth = w;
+    this._feltCachedHeight = h;
+    const offCtx = this._feltCanvas.getContext('2d');
+    offCtx.fillStyle = 'rgba(0,0,0,0.02)';
     for (let gy = 0; gy < h; gy += 4) {
       for (let gx = 0; gx < w; gx += 4) {
         if ((gx + gy) % 8 === 0) {
-          ctx.fillRect(gx, gy, 1, 1);
+          offCtx.fillRect(gx, gy, 1, 1);
         }
       }
     }

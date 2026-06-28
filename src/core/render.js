@@ -22,7 +22,7 @@ export class Renderer {
     this.height = rect.height * this.dpr;
     this.canvas.width = this.width;
     this.canvas.height = this.height;
-    this.ctx.scale(this.dpr, this.dpr);
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
   }
 
   get logicalWidth() {

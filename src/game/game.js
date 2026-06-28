@@ -224,13 +224,17 @@ export class Game {
     if (seq.length === 0) return false;
     if (!this.tableau.canPlace(seq[0], toCol)) return false;
 
+    // Check if the card that will be exposed was face-down (before removal)
+    const col = this.tableau.columns[fromCol];
+    const newTopIndex = cardIndex - 1;
+    const willReveal = newTopIndex >= 0 && !col[newTopIndex].faceUp;
+
     this.saveUndoState();
     this.tableau.removeSequence(fromCol, cardIndex);
     this.tableau.placeSequence(toCol, seq);
     this.moves++;
-    // Score for revealing a card
-    const col = this.tableau.columns[fromCol];
-    if (col.length > 0 && col[col.length - 1].faceUp) {
+    // Score for revealing a card (only if it was actually face-down)
+    if (willReveal) {
       this.score += 5;
     }
     if (this.audio) this.audio.play('cardPlace');
@@ -313,15 +317,12 @@ export class Game {
 
   /**
    * Check if auto-complete is possible:
-   * All remaining cards are face up.
+   * Stock and waste must both be empty, and all tableau cards face up.
    */
   canAutoComplete() {
     if (this.stock.stock.length > 0) return false;
-    if (this.stock.waste.length > 0) {
-      // Check if all waste cards can eventually go to foundation
-      // Simple check: all tableau cards are face up
-    }
-    return this.tableau.allFaceUp() && this.stock.stock.length === 0;
+    if (this.stock.waste.length > 0) return false;
+    return this.tableau.allFaceUp();
   }
 
   /**
