@@ -61,6 +61,10 @@ html, body {
   z-index: 9999;
 }
 
+#fatal-error[hidden] {
+  display: none;
+}
+
 #fatal-error h1 {
   font-size: 2rem;
   margin-bottom: 1rem;

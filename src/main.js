@@ -1015,6 +1015,10 @@ class App {
 
 // Boot
 try {
+  // Ensure error overlay is hidden on clean start
+  const errorEl = document.getElementById('fatal-error');
+  if (errorEl) errorEl.hidden = true;
+
   const app = new App();
   window.__app = app;
 } catch (e) {
@@ -1022,7 +1026,7 @@ try {
   const errorEl = document.getElementById('fatal-error');
   const msgEl = document.getElementById('error-message');
   if (errorEl && msgEl) {
-    errorEl.hidden = false;
+    errorEl.removeAttribute('hidden');
     msgEl.textContent = e.message || 'An unexpected error occurred.';
   }
 }
