@@ -23,6 +23,12 @@ export class StandaloneAdapter extends PlatformAdapter {
   async showRewarded() { return false; }
   hideBanner() {}
 
+  // No ad network when self-hosted: a commercial break is an instant no-op,
+  // and the optional rewarded reward is granted directly (nothing to watch)
+  // so the reward control still has a real, visible effect off-portal.
+  async commercialBreak() { return true; }
+  async rewardedBreak() { return true; }
+
   gameStart() {}
   gameOver(score) {}
   happyMoment() {}

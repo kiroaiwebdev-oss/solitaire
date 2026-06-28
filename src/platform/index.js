@@ -8,13 +8,17 @@ import { CrazyGamesAdapter } from './crazygames.js';
 import { GameDistributionAdapter } from './gamedistribution.js';
 import { Y8Adapter } from './y8.js';
 import { PlayHopAdapter } from './playhop.js';
+import { PokiAdapter } from './poki.js';
+import { YouTubePlayablesAdapter } from './youtube.js';
 
 const adapters = {
   standalone: StandaloneAdapter,
   crazygames: CrazyGamesAdapter,
   gamedistribution: GameDistributionAdapter,
   y8: Y8Adapter,
-  playhop: PlayHopAdapter
+  playhop: PlayHopAdapter,
+  poki: PokiAdapter,
+  youtube: YouTubePlayablesAdapter
 };
 
 /**
@@ -23,6 +27,8 @@ const adapters = {
  */
 function detectFromGlobals() {
   if (typeof window === 'undefined') return null;
+  if (window.ytgame) return 'youtube';
+  if (window.PokiSDK) return 'poki';
   if (window.CrazyGames) return 'crazygames';
   if (window.gdsdk) return 'gamedistribution';
   if (window.ID) return 'y8';

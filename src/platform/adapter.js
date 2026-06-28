@@ -36,10 +36,36 @@ export class PlatformAdapter {
   gameplayStart() {}
   gameplayStop() {}
 
+  // --- Loading handshake (wired generically from boot/loading screen) ---
+  // loadingStart  : called once SDK/asset loading begins
+  // loadingFinished: called once the menu is interactive (game finished loading)
+  // firstFrameReady: called once the very first frame has rendered
+  // gameReady     : called once the game is ready to accept input (after firstFrameReady)
+  loadingStart() {}
+  loadingFinished() {}
+  firstFrameReady() {}
+  gameReady() {}
+
+  // --- Natural-break ads (Promise-based) ---
+  // commercialBreak(): resolves when an (optional) ad finishes/skips; safe no-op
+  //                    by default. Call only at natural breaks, never mid-play.
+  // rewardedBreak() : resolves true ONLY when the player earned the reward.
+  //                   Must resolve safely (false) on adblock/missing SDK.
+  async commercialBreak() { return this.showInterstitial(); }
+  async rewardedBreak() { return this.showRewarded(); }
+
   // Audio control
   shouldMuteAudio() { return false; }
   muteAudio() {}
   unmuteAudio() {}
+
+  // Platform audio gate. When a platform owns the audio state (e.g. YouTube
+  // Playables) it returns false to force-mute regardless of the in-game toggle.
+  isAudioEnabled() { return true; }
+
+  // Bind platform lifecycle callbacks (pause/resume/audio-change). Adapters
+  // that expose host events (YouTube Playables, etc.) wire them to `handlers`.
+  bindLifecycle(handlers) { this._lifecycle = handlers || {}; }
 
   // Adblock detection
   isAdblocked() { return false; }

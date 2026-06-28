@@ -223,6 +223,8 @@ export class Input {
       this._emit('shortcut', { action: 'newGame' });
     } else if (e.code === 'KeyA' && !ctrl && !shift) {
       this._emit('shortcut', { action: 'autoComplete' });
+    } else if (e.code === 'KeyR' && !ctrl && !shift) {
+      this._emit('shortcut', { action: 'rewardedHint' });
     } else if (e.code === 'Escape') {
       this._emit('shortcut', { action: 'pause' });
     } else if (e.code === 'Space') {

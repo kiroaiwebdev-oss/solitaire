@@ -870,5 +870,62 @@ test('sound disabled: audio calls are guarded and do not throw', () => {
 });
 
 // ---------------------------------------------------------------------------
+console.log('\n[Platform Adapter Wiring]');
+
+await testAsync('platform SDK initialized + loading handshake completed', async () => {
+  // _bootPlatform() runs fire-and-forget on construction; let it settle.
+  await Promise.resolve(); await Promise.resolve();
+  assert(app.adapter && app.adapter.name === 'standalone', 'standalone adapter active in harness');
+  assert(app._platformReady === true, 'adapter.init() was awaited (platform ready)');
+  app._render(0.016); app._render(0.016);
+  assert(app._firstFrameSent === true, 'firstFrameReady() fired on the first rendered frame');
+  assert(app._gameReadySent === true, 'gameReady() fired after platform init + first frame');
+});
+
+test('gameplayStart/Stop bookkeeping is idempotent', () => {
+  app._gameplayActive = false;
+  app._gameplayStart(); app._gameplayStart();
+  assert(app._gameplayActive === true, 'gameplayStart marks active exactly once');
+  app._gameplayStop(); app._gameplayStop();
+  assert(app._gameplayActive === false, 'gameplayStop clears active exactly once');
+});
+
+test('gameplay lifecycle follows the PLAYING state through _update', () => {
+  app._handleScreenAction('startEasy');
+  app._update(0.016);
+  assert(app._gameplayActive === true, 'gameplay active while PLAYING');
+  app._handleHudAction('menu'); // -> PAUSED
+  app._update(0.016);
+  assert(app._gameplayActive === false, 'gameplay stops when paused (ads safe at break)');
+  app._handleScreenAction('resume'); // -> PLAYING
+  app._update(0.016);
+  assert(app._gameplayActive === true, 'gameplay resumes on resume');
+});
+
+test('_syncAudioMute respects the in-game sound toggle (platform can override)', () => {
+  app.settings.soundEnabled = true;
+  app._syncAudioMute();
+  assert(app.audio.muted === false, 'unmuted when sound on and platform allows audio');
+  app.settings.soundEnabled = false;
+  app._syncAudioMute();
+  assert(app.audio.muted === true, 'muted when the in-game sound toggle is off');
+  app.settings.soundEnabled = true;
+  app._syncAudioMute();
+});
+
+await testAsync('rewarded-ad hook grants a visible reward (standalone) and is adblock-safe', async () => {
+  app._handleScreenAction('startEasy');
+  app.hint.active = false; app._toasts = [];
+  const granted = await app._offerRewardedHint();
+  assert(granted === true, 'standalone grants the optional reward (nothing to watch)');
+  assert((app.hint && app.hint.active) || app._toasts.length > 0,
+    'reward produces a visible effect (hint highlight and/or toast)');
+});
+
+test('rewardedHint shortcut action is handled in main.js (not a dead control)', () => {
+  assert(handledCases.has('rewardedHint'), 'rewardedHint action has a handler in main.js');
+});
+
+// ---------------------------------------------------------------------------
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);
 if (failed > 0) { process.exit(1); } else { console.log('All boot/QA tests passed!'); }

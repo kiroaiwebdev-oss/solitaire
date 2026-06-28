@@ -1,10 +1,24 @@
 /**
- * CrazyGames platform adapter.
+ * CrazyGames platform adapter (SDK v3).
  * SDK: https://sdk.crazygames.com/crazygames-sdk-v3.js
+ *   global: window.CrazyGames ; methods under window.CrazyGames.SDK
+ *
+ * v3 integration:
+ *   - SDK.init()                                   -> Promise
+ *   - SDK.game.sdkGameLoadingStart()/sdkGameLoadingFinished()
+ *   - SDK.game.gameplayStart()/gameplayStop()
+ *   - SDK.game.happytime()
+ *   - SDK.ad.requestAd('midgame'|'rewarded', { adStarted, adFinished, adError })
+ *   - SDK.ad.hasAdblock (async) for adblock awareness
+ *
+ * Ads NEVER interrupt active gameplay (only requested at natural breaks by the
+ * app); audio is muted during an ad and restored after. Rewarded grants ONLY
+ * on adFinished, never on adError. Every SDK call is feature-detected and
+ * adblock/missing-SDK safe.
  */
 
 import { PlatformAdapter } from './adapter.js';
-import { waitForGlobal, safe, audioMuteHelper, fallbackAdOverlay } from './sdkUtil.js';
+import { waitForGlobal, safe, fallbackAdOverlay } from './sdkUtil.js';
 
 export class CrazyGamesAdapter extends PlatformAdapter {
   constructor() {
@@ -13,108 +27,127 @@ export class CrazyGamesAdapter extends PlatformAdapter {
     this.sdk = null;
     this._muted = false;
     this._adblocked = false;
+    this._loadingStarted = false;
+    this._loadingFinished = false;
   }
 
   async init() {
     try {
       const cg = await waitForGlobal('CrazyGames', 8000);
-      this.sdk = cg.CrazyGames || cg;
-      if (this.sdk.init) {
+      // v3 exposes the API under window.CrazyGames.SDK.
+      this.sdk = cg.SDK || cg.sdk || cg;
+      if (this.sdk && typeof this.sdk.init === 'function') {
         await this.sdk.init();
       }
-      // Detect adblock
-      this._detectAdblock();
+      await this._detectAdblock();
+      // Begin the loading phase as early as possible.
+      this.loadingStart();
     } catch (e) {
-      console.warn('[CrazyGames] SDK not available, using fallbacks');
+      console.warn('[CrazyGames] SDK not available, using safe fallbacks');
       this._adblocked = true;
     }
     this.initialized = true;
     console.log('[Platform] CrazyGames mode');
   }
 
-  _detectAdblock() {
-    // CrazyGames SDK exposes adblock detection
-    if (this.sdk && this.sdk.ad && this.sdk.ad.hasAdblock) {
-      this._adblocked = true;
+  async _detectAdblock() {
+    try {
+      if (this.sdk && this.sdk.ad && typeof this.sdk.ad.hasAdblock === 'function') {
+        // v3 hasAdblock() returns a Promise<boolean>; await it (do NOT read sync).
+        this._adblocked = (await this.sdk.ad.hasAdblock()) === true;
+      }
+    } catch (e) {
+      // Unknown -> assume not blocked; ad calls are individually guarded anyway.
     }
+  }
+
+  loadingStart() {
+    if (this._loadingStarted) return;
+    this._loadingStarted = true;
+    safe(() => this.sdk && this.sdk.game && this.sdk.game.sdkGameLoadingStart && this.sdk.game.sdkGameLoadingStart());
+  }
+
+  loadingFinished() {
+    if (this._loadingFinished) return;
+    this._loadingFinished = true;
+    safe(() => this.sdk && this.sdk.game && this.sdk.game.sdkGameLoadingFinished && this.sdk.game.sdkGameLoadingFinished());
   }
 
   async showBanner() {
-    // CrazyGames handles banners internally
+    // CrazyGames manages banner containers internally.
   }
 
+  /** Midgame (interstitial) ad. Only call at a natural break, never mid-play. */
   async showInterstitial() {
-    if (this._adblocked || !this.sdk) {
-      await fallbackAdOverlay(5);
+    if (this._adblocked || !this.sdk || !this.sdk.ad || typeof this.sdk.ad.requestAd !== 'function') {
+      await fallbackAdOverlay(3);
       return true;
     }
     return new Promise((resolve) => {
-      safe(() => {
+      let settled = false;
+      const done = (v) => { if (settled) return; settled = true; this._muted = false; resolve(v); };
+      try {
         this.sdk.ad.requestAd('midgame', {
           adStarted: () => { this._muted = true; },
-          adFinished: () => { this._muted = false; resolve(true); },
-          adError: () => { this._muted = false; resolve(true); }
+          adFinished: () => done(true),
+          adError: () => done(true)
         });
-      });
-      // Fallback timeout in case callbacks never fire
-      setTimeout(() => { this._muted = false; resolve(true); }, 30000);
+      } catch (e) {
+        done(true);
+      }
+      setTimeout(() => done(true), 30000);
     });
   }
 
+  /** Rewarded ad. Resolves true ONLY on adFinished; adError/adblock -> false. */
   async showRewarded() {
-    if (this._adblocked || !this.sdk) {
-      await fallbackAdOverlay(5);
-      return true;
+    if (this._adblocked || !this.sdk || !this.sdk.ad || typeof this.sdk.ad.requestAd !== 'function') {
+      return false; // no ad available -> no reward, but never soft-lock
     }
     return new Promise((resolve) => {
-      safe(() => {
+      let settled = false;
+      const done = (v) => { if (settled) return; settled = true; this._muted = false; resolve(v); };
+      try {
         this.sdk.ad.requestAd('rewarded', {
           adStarted: () => { this._muted = true; },
-          adFinished: () => { this._muted = false; resolve(true); },
-          adError: () => { this._muted = false; resolve(false); }
+          adFinished: () => done(true),
+          adError: () => done(false)
         });
-      });
-      setTimeout(() => { this._muted = false; resolve(false); }, 60000);
+      } catch (e) {
+        done(false);
+      }
+      setTimeout(() => done(false), 60000);
     });
   }
+
+  // Natural-break ad model.
+  async commercialBreak() { return this.showInterstitial(); }
+  async rewardedBreak() { return this.showRewarded(); }
 
   hideBanner() {}
 
-  gameStart() {
-    safe(() => this.sdk && this.sdk.game && this.sdk.game.sdkGameLoadingStop());
-  }
+  gameStart() { this.loadingFinished(); }
 
   gameOver(score) {
-    safe(() => this.sdk && this.sdk.game && this.sdk.game.gameplayStop());
+    safe(() => this.sdk && this.sdk.game && this.sdk.game.gameplayStop && this.sdk.game.gameplayStop());
   }
 
   happyMoment() {
-    safe(() => this.sdk && this.sdk.game && this.sdk.game.happyTime());
+    safe(() => this.sdk && this.sdk.game && this.sdk.game.happytime && this.sdk.game.happytime());
   }
 
   gameplayStart() {
-    safe(() => this.sdk && this.sdk.game && this.sdk.game.gameplayStart());
+    safe(() => this.sdk && this.sdk.game && this.sdk.game.gameplayStart && this.sdk.game.gameplayStart());
   }
 
   gameplayStop() {
-    safe(() => this.sdk && this.sdk.game && this.sdk.game.gameplayStop());
+    safe(() => this.sdk && this.sdk.game && this.sdk.game.gameplayStop && this.sdk.game.gameplayStop());
   }
 
-  shouldMuteAudio() {
-    return this._muted;
-  }
-
-  isAdblocked() {
-    return this._adblocked;
-  }
-
-  muteAudio() {
-    this._muted = true;
-  }
-
-  unmuteAudio() {
-    this._muted = false;
-  }
+  shouldMuteAudio() { return this._muted; }
+  isAdblocked() { return this._adblocked; }
+  muteAudio() { this._muted = true; }
+  unmuteAudio() { this._muted = false; }
 
   showBannerAd() { return this.showBanner(); }
   showInterstitialAd() { return this.showInterstitial(); }

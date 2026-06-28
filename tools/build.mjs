@@ -13,14 +13,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const rootDir = join(__dirname, '..');
 
-const platforms = ['standalone', 'crazygames', 'gamedistribution', 'y8', 'playhop'];
+const platforms = ['standalone', 'crazygames', 'gamedistribution', 'y8', 'playhop', 'poki', 'youtube'];
 
 const sdkUrls = {
   standalone: null,
   crazygames: 'https://sdk.crazygames.com/crazygames-sdk-v3.js',
   gamedistribution: 'https://html5.api.gamedistribution.com/main.min.js',
   y8: 'https://cdn.y8.com/api/sdk.js',
-  playhop: 'https://cdn.playgama.com/sdk/bridge.js'
+  playhop: 'https://cdn.playgama.com/sdk/bridge.js',
+  poki: 'https://game-cdn.poki.com/scripts/v2/poki-sdk.js',
+  youtube: 'https://www.youtube.com/game_api/v1'
 };
 
 const filesToCopy = [
@@ -56,6 +58,8 @@ const filesToCopy = [
   'src/platform/gamedistribution.js',
   'src/platform/y8.js',
   'src/platform/playhop.js',
+  'src/platform/poki.js',
+  'src/platform/youtube.js',
   'src/platform/sdkUtil.js',
   'src/platform/index.js',
   'src/config/scoring.js',
@@ -216,6 +220,28 @@ for (const platform of platforms) {
   if (sdkUrls[platform] && !builtIndex.includes(sdkUrls[platform])) {
     console.error(`  ERROR: SDK URL not found in ${platform}/index.html`);
     process.exit(1);
+  }
+
+  // YouTube Playables: the SDK <script> MUST load before the main.js module,
+  // and the service worker MUST be gated off (no cross-origin fetches allowed).
+  if (platform === 'youtube') {
+    const sdkIdx = builtIndex.indexOf(sdkUrls.youtube);
+    const moduleIdx = builtIndex.indexOf('src="src/main.js"');
+    if (sdkIdx === -1 || moduleIdx === -1 || sdkIdx > moduleIdx) {
+      console.error(`  ERROR: YT Playables SDK must be injected BEFORE the main.js module script`);
+      process.exit(1);
+    }
+    if (!builtIndex.includes("plat === 'youtube'")) {
+      console.error(`  ERROR: service worker registration is not gated off for youtube`);
+      process.exit(1);
+    }
+    // No external SDK other than the YT Playables SDK itself is allowed.
+    for (const [p, url] of Object.entries(sdkUrls)) {
+      if (p !== 'youtube' && url && builtIndex.includes(url)) {
+        console.error(`  ERROR: youtube build must not inject the ${p} SDK (${url})`);
+        process.exit(1);
+      }
+    }
   }
 
   console.log(`  Validated ${platform} build`);

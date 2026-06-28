@@ -35,6 +35,8 @@ class App {
     this.audio = new Audio();
     this.loop = new GameLoop();
     this.adapter = getAdapter();
+    // Signal the platform that loading has begun as early as possible.
+    try { if (this.adapter.loadingStart) this.adapter.loadingStart(); } catch (e) {}
     this.saveManager = new SaveManager(this.adapter);
     this.particles = new ParticleSystem();
     this.animations = new AnimationManager();
@@ -69,6 +71,13 @@ class App {
     this.audioInitialized = false;
     this.gameActive = false;
     this.showingWinAnim = false;
+
+    // Platform handshake state
+    this._platformReady = false;
+    this._wantGameReady = false;
+    this._firstFrameSent = false;
+    this._gameReadySent = false;
+    this._gameplayActive = false;
     this.usedUndoThisGame = false;
     this.isDailyChallenge = false;
     this.deferredInstallPrompt = null;
@@ -108,6 +117,134 @@ class App {
     };
 
     this._initApp();
+    // Initialize the platform SDK and wire its lifecycle (non-blocking).
+    this._bootPlatform();
+  }
+
+  /**
+   * Initialize the active platform adapter and wire its lifecycle handshake.
+   * Runs asynchronously and never blocks boot; all calls are SDK-safe.
+   */
+  async _bootPlatform() {
+    const a = this.adapter;
+    if (!a) return;
+    try { await a.init(); } catch (e) { /* SDK absent/blocked: safe fallbacks */ }
+    this._platformReady = true;
+
+    // Wire host pause/resume/audio events (YouTube Playables et al).
+    try {
+      if (a.bindLifecycle) {
+        a.bindLifecycle({
+          onPause: () => this._platformPause(),
+          onResume: () => this._platformResume(),
+          onAudioChange: () => this._syncAudioMute()
+        });
+      }
+    } catch (e) {}
+
+    // Platform now owns part of the audio state.
+    this._syncAudioMute();
+
+    // The menu is interactive: tell the platform loading is finished.
+    try { if (a.loadingFinished) a.loadingFinished(); } catch (e) {}
+    // gameReady() is emitted from _render once firstFrameReady() has fired.
+    this._wantGameReady = true;
+  }
+
+  /** Host requested a pause (e.g. YouTube Playables onPause). */
+  _platformPause() {
+    if (this.gameActive && this.game && this.game.state === GAME_STATES.PLAYING) {
+      this.game.state = GAME_STATES.PAUSED;
+      if (this.screens) this.screens.show('pause');
+    }
+    this._gameplayStop();
+    this._syncAudioMute();
+  }
+
+  /** Host resumed the game (e.g. YouTube Playables onResume). */
+  _platformResume() {
+    if (this.loop && this.loop.resume) this.loop.resume(); // avoids a dt spike
+    this._syncAudioMute();
+  }
+
+  /** Fire platform gameplayStart once per active round (idempotent). */
+  _gameplayStart() {
+    if (this._gameplayActive) return;
+    this._gameplayActive = true;
+    try { if (this.adapter && this.adapter.gameplayStart) this.adapter.gameplayStart(); } catch (e) {}
+  }
+
+  /** Fire platform gameplayStop when leaving the PLAYING state (idempotent). */
+  _gameplayStop() {
+    if (!this._gameplayActive) return;
+    this._gameplayActive = false;
+    try { if (this.adapter && this.adapter.gameplayStop) this.adapter.gameplayStop(); } catch (e) {}
+  }
+
+  /**
+   * Reconcile the effective mute state: the in-game sound toggle is overridden
+   * by the platform (ad playing, tab hidden, or platform audio disabled).
+   */
+  _syncAudioMute() {
+    if (!this.audio) return;
+    let muted = !this.settings.soundEnabled;
+    const a = this.adapter;
+    if (a) {
+      try { if (a.shouldMuteAudio && a.shouldMuteAudio()) muted = true; } catch (e) {}
+      try { if (a.isAudioEnabled && a.isAudioEnabled() === false) muted = true; } catch (e) {}
+    }
+    this.audio.setMuted(muted);
+  }
+
+  /**
+   * Show an optional non-rewarded ad at a natural break (between games).
+   * Mutes + pauses audio for the duration and restores it after. Always
+   * resolves so gameplay can resume even when ads are blocked/absent.
+   */
+  async _commercialBreak() {
+    const a = this.adapter;
+    if (!a || !a.commercialBreak) return;
+    if (this.audio) this.audio.setMuted(true);
+    try { if (a.muteAudio) a.muteAudio(); } catch (e) {}
+    try { await a.commercialBreak(); } catch (e) {}
+    try { if (a.unmuteAudio) a.unmuteAudio(); } catch (e) {}
+    this._syncAudioMute();
+  }
+
+  /**
+   * Run an optional rewarded ad. Resolves true ONLY when the player earned the
+   * reward. Mutes audio during the ad and restores after. Adblock/absent SDK
+   * resolves false safely (never soft-locks).
+   * @returns {Promise<boolean>}
+   */
+  async _rewardedBreak() {
+    const a = this.adapter;
+    if (this.audio) this.audio.setMuted(true);
+    try { if (a && a.muteAudio) a.muteAudio(); } catch (e) {}
+    let ok = false;
+    try { ok = await (a && a.rewardedBreak ? a.rewardedBreak() : Promise.resolve(false)); } catch (e) { ok = false; }
+    try { if (a && a.unmuteAudio) a.unmuteAudio(); } catch (e) {}
+    this._syncAudioMute();
+    return ok === true;
+  }
+
+  /**
+   * Optional rewarded-ad hook (never required): the player can watch a rewarded
+   * ad to unlock a free hint. Fully wired with a visible effect (toast + hint
+   * highlight) and adblock-safe. Bound to the 'R' shortcut.
+   * @returns {Promise<boolean>} whether the reward was granted
+   */
+  async _offerRewardedHint() {
+    if (!this.gameActive || !this.game || this.game.state !== GAME_STATES.PLAYING) return false;
+    this._ensureAudio();
+    const granted = await this._rewardedBreak();
+    if (granted) {
+      this._showToast('Reward unlocked: free hint', { icon: '\uD83C\uDF81', color: '#7affc0', duration: 2.4 });
+      this._activateHint();
+    } else {
+      this._showToast('Reward unavailable right now', { icon: '\u26A0' });
+    }
+    return granted;
   }
 
   _loadAllState() {
@@ -218,6 +355,8 @@ class App {
     this.progression.addXp(xp);
     this.achievements.check(this.stats);
     this._saveStats(); this._saveAllState(); this.screens.setStats(this.stats);
+    // Report the score to the platform leaderboard/engagement API (guarded).
+    try { if (this.adapter && this.adapter.submitScore) this.adapter.submitScore(this.game ? this.game.score : 0); } catch (e) {}
   }
 
   _recordLoss() {
@@ -240,12 +379,33 @@ class App {
     this.input.on('doubletap', (coords) => this._onDoubleTap(coords));
     this.input.on('shortcut', (e) => this._onKeyboard(e));
 
-    // Visibility API for auto-pause
+    // Visibility API for auto-pause (+ mute) on tab hidden
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.gameActive && this.game.state === GAME_STATES.PLAYING) {
+      if (document.hidden) {
+        if (this.gameActive && this.game.state === GAME_STATES.PLAYING) {
+          this.game.state = GAME_STATES.PAUSED;
+          this.screens.show('pause');
+        }
+        this._gameplayStop();
+        if (this.audio) this.audio.setMuted(true);
+      } else {
+        if (this.loop && this.loop.resume) this.loop.resume(); // prevent dt spike
+        this._syncAudioMute();
+      }
+    });
+
+    // Window blur/focus: pause + mute when the game loses focus, restore on focus.
+    window.addEventListener('blur', () => {
+      if (this.gameActive && this.game && this.game.state === GAME_STATES.PLAYING) {
         this.game.state = GAME_STATES.PAUSED;
         this.screens.show('pause');
       }
+      this._gameplayStop();
+      if (this.audio) this.audio.setMuted(true);
+    });
+    window.addEventListener('focus', () => {
+      if (this.loop && this.loop.resume) this.loop.resume(); // prevent dt spike
+      this._syncAudioMute();
     });
 
     // Save on unload
@@ -305,6 +465,7 @@ class App {
       case 'hint': this._activateHint(); break;
       case 'newGame': this._handleScreenAction('modeSelect'); break;
       case 'autoComplete': if (this.game.canAutoComplete && this.game.canAutoComplete()) this.game.startAutoComplete(); break;
+      case 'rewardedHint': this._offerRewardedHint(); break;
       case 'pause':
         if (this.screens.isActive()) this._handleScreenAction('resume');
         else { this.game.state = GAME_STATES.PAUSED; this.screens.show('pause'); }
@@ -502,7 +663,7 @@ class App {
 
   _ensureAudio() {
     if (!this.audioInitialized) { this.audio.init(); this.audioInitialized = true; }
-    this.audio.setMuted(!this.settings.soundEnabled);
+    this._syncAudioMute();
     if (this.audio.setSfxVolume) this.audio.setSfxVolume(this.settings.sfxVolume || 0.8);
     if (this.audio.setMusicVolume) this.audio.setMusicVolume(this.settings.musicVolume || 0.5);
   }
@@ -798,7 +959,7 @@ class App {
   _handleScreenAction(action) {
     if (!action) return;
     switch (action) {
-      case 'modeSelect': this.screens.show('modeSelect'); break;
+      case 'modeSelect': this.screens.show('modeSelect'); this._commercialBreak(); break;
       case 'continue': this._restoreGameState(); break;
       case 'settings': this.screens.show('settings'); break;
       case 'statistics': this.screens.show('statistics'); break;
@@ -1228,6 +1389,14 @@ class App {
     this._updateToasts(dt);
     this._drainAchievementNotifications();
 
+    // Reconcile platform audio state + gameplay lifecycle every frame.
+    this._syncAudioMute();
+    if (this.gameActive && this.game && this.game.state === GAME_STATES.PLAYING && !this.showingWinAnim) {
+      this._gameplayStart();
+    } else {
+      this._gameplayStop();
+    }
+
     // Hint highlight timer
     if (this.hint && this.hint.active) {
       this.hint.time += dt;
@@ -1275,6 +1444,17 @@ class App {
 
   _render(dt) {
     this._computeLayout();
+
+    // Platform loading handshake: firstFrameReady() on the very first rendered
+    // frame, then gameReady() once the platform has finished initializing.
+    if (!this._firstFrameSent) {
+      this._firstFrameSent = true;
+      try { if (this.adapter && this.adapter.firstFrameReady) this.adapter.firstFrameReady(); } catch (e) {}
+    } else if (this._wantGameReady && !this._gameReadySent) {
+      this._gameReadySent = true;
+      try { if (this.adapter && this.adapter.gameReady) this.adapter.gameReady(); } catch (e) {}
+    }
+
     this.renderer.clear('#0d2818');
     const ctx = this.renderer.ctx;
     const layout = this.layout;

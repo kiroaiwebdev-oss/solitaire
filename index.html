@@ -20,11 +20,18 @@
   </div>
   <script type="module" src="src/main.js"></script>
   <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js').catch(() => {});
-      });
-    }
+    // Service worker is gated to non-YouTube platforms: YouTube Playables
+    // forbids disallowed external/cross-origin network requests, and a SW's
+    // fetch handler can issue them. Everything else caches same-origin files.
+    (function () {
+      var plat = (typeof window !== 'undefined' && window.__PLATFORM__) || '';
+      if (plat === 'youtube') return;
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('./sw.js').catch(function () {});
+        });
+      }
+    })();
   </script>
 </body>
 </html>
