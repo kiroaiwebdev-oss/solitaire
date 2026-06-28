@@ -7,6 +7,7 @@
 
 import { SCORING } from '../config/scoring.js';
 import { easeOutCubic, clamp } from '../core/math.js';
+import { drawFittedLabel } from './text-fit.js';
 
 class HudButton {
   constructor(label, icon, action) {
@@ -92,17 +93,16 @@ class HudButton {
       ctx.globalAlpha = this.alpha;
     }
 
-    // Icon/text
-    ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+    // Icon/text — fitted so a label can never overflow its button.
     ctx.fillStyle = this.hovered ? '#d4af37' : '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    if (this.icon) {
-      ctx.fillText(this.icon, x + w / 2, y + h / 2);
-    } else {
-      ctx.fillText(this.label, x + w / 2, y + h / 2);
-    }
+    const text = this.icon || this.label;
+    drawFittedLabel(ctx, text, x + w / 2, y + h / 2, w, h, {
+      baseSize: fontSize,
+      minSize: 8,
+      weight: 'bold',
+      allowWrap: false,
+      padX: 4,
+    });
 
     ctx.restore();
   }

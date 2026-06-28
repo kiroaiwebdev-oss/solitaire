@@ -3,7 +3,7 @@
  * Cache-first strategy for offline play.
  */
 
-const CACHE_NAME = 'solitaire-v1';
+const CACHE_NAME = 'solitaire-v2';
 
 const FILES_TO_CACHE = [
   './index.html',
@@ -28,6 +28,7 @@ const FILES_TO_CACHE = [
   './src/systems/achievements.js',
   './src/ui/hud.js',
   './src/ui/screens.js',
+  './src/ui/text-fit.js',
   './src/ui/particles.js',
   './src/ui/animations.js',
   './src/platform/adapter.js',

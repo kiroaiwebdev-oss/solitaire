@@ -621,6 +621,119 @@ for (const [w, h] of VIEWPORTS) {
 }
 
 // ---------------------------------------------------------------------------
+console.log('\n[UI Overflow / Overlap Audit]');
+
+// The renderer and this test share the SAME fit functions (src/ui/text-fit.js)
+// and the SAME per-button options (ScreenButton.getFitOpts / getDisplayLabel),
+// so what we assert here is exactly what gets drawn. This directly guards the
+// achievements-tab overlap bug and any future label overflow / button overlap.
+const { fitBoxLabel, measureTextWidth } = await import('../src/ui/text-fit.js?audit=1');
+
+const UI_VIEWPORTS = [
+  [320, 568],  // small phone portrait
+  [375, 667],  // phone portrait
+  [667, 375],  // phone landscape
+  [768, 1024], // tablet portrait
+  [1366, 768], // desktop
+  [2560, 1080],// ultrawide
+];
+const UI_SCREENS = ['loading', 'mainMenu', 'modeSelect', 'settings', 'statistics',
+  'achievements', 'dailyChallenge', 'howToPlay', 'pause', 'win', 'gameOver'];
+
+function rectsIntersect(a, b, eps = 0.5) {
+  return a.x + a.width - eps > b.x && b.x + b.width - eps > a.x &&
+         a.y + a.height - eps > b.y && b.y + b.height - eps > a.y;
+}
+
+const auditCtx = app.renderer.ctx;
+let auditButtonCount = 0;
+
+for (const [w, h] of UI_VIEWPORTS) {
+  test(`UI labels fit + buttons never overlap @ ${w}x${h}`, () => {
+    app.renderer.canvas.width = w; app.renderer.canvas.height = h;
+    app.renderer.width = w; app.renderer.height = h; app.renderer.dpr = 1;
+    app.screens.transitioning = false; app.screens.nextScreen = null;
+    app.screens.winData = { score: 12345, moves: 137, time: 482 };
+
+    for (const screen of UI_SCREENS) {
+      // Exercise every achievement category tab + every tutorial page.
+      const variants = screen === 'howToPlay'
+        ? [0, 1, 2, 3, 4]
+        : (screen === 'achievements' ? ['all', 'beginner', 'advanced', 'special'] : [null]);
+
+      for (const variant of variants) {
+        if (screen === 'howToPlay') app.screens.howToPlayPage = variant;
+        if (screen === 'achievements') app.screens.achievementCategory = variant;
+        app.screens.activeScreen = screen;
+        app.screens._buildButtons();
+        const buttons = app.screens.buttons;
+        const baseSize = Math.min(w * 0.038, 16);
+
+        for (const btn of buttons) {
+          auditButtonCount++;
+          // 1. Box must leave usable room for the label.
+          const opts = btn.getFitOpts(baseSize);
+          const padX = opts.padX;
+          const maxWidth = btn.width - padX * 2;
+          assert(maxWidth > 2, `${screen}/${variant}: button "${btn.action}" has usable inner width (${maxWidth.toFixed(1)})`);
+
+          // 2. Fitted label (exactly what is drawn) must fit the box width.
+          const fit = fitBoxLabel(auditCtx, btn.getDisplayLabel(), btn.width, opts.boxH, opts);
+          for (const line of fit.lines) {
+            const lw = measureTextWidth(auditCtx, line, fit.fontSize, opts.weight);
+            assert(lw <= maxWidth + 0.5,
+              `${screen}/${variant}: label "${btn.getDisplayLabel()}" line "${line}" fits (${lw.toFixed(1)} <= ${maxWidth.toFixed(1)})`);
+          }
+
+          // 3. Button must stay on-screen.
+          assert(btn.x >= -0.5 && btn.y >= -0.5 && btn.x + btn.width <= w + 0.5 && btn.y + btn.height <= h + 0.5,
+            `${screen}/${variant}: button "${btn.action}" within ${w}x${h} bounds`);
+        }
+
+        // 4. No two buttons on a screen may overlap.
+        for (let i = 0; i < buttons.length; i++) {
+          for (let j = i + 1; j < buttons.length; j++) {
+            assert(!rectsIntersect(buttons[i], buttons[j]),
+              `${screen}/${variant}: buttons "${buttons[i].action}" and "${buttons[j].action}" do not overlap`);
+          }
+        }
+      }
+    }
+  });
+}
+
+test('overflow audit actually exercised a meaningful number of buttons', () => {
+  assert(auditButtonCount > 200, `audited many buttons across screens/viewports (${auditButtonCount})`);
+});
+
+// Targeted regression guard for the reported bug: the four achievements tabs.
+test('achievements category tabs fit their labels and are spaced apart', () => {
+  for (const [w, h] of UI_VIEWPORTS) {
+    app.renderer.canvas.width = w; app.renderer.canvas.height = h;
+    app.renderer.width = w; app.renderer.height = h; app.renderer.dpr = 1;
+    app.screens.achievementCategory = 'all';
+    app.screens.activeScreen = 'achievements';
+    app.screens._buildButtons();
+    const tabs = app.screens.buttons.filter(b => b.action.startsWith('achCat_'));
+    assert(tabs.length === 4, `four category tabs built @ ${w}x${h}`);
+    const baseSize = Math.min(w * 0.038, 16);
+    for (const tab of tabs) {
+      const opts = tab.getFitOpts(baseSize);
+      const fit = fitBoxLabel(app.renderer.ctx, tab.getDisplayLabel(), tab.width, opts.boxH, opts);
+      const lw = measureTextWidth(app.renderer.ctx, fit.lines[0], fit.fontSize, opts.weight);
+      assert(lw <= tab.width - opts.padX * 2 + 0.5, `tab "${tab.label}" fits @ ${w}x${h}`);
+    }
+    // Adjacent tabs must have a positive gap (never touching/overlapping).
+    for (let i = 1; i < tabs.length; i++) {
+      const gap = tabs[i].x - (tabs[i - 1].x + tabs[i - 1].width);
+      assert(gap >= 1, `gap between tabs ${i - 1}/${i} is positive @ ${w}x${h} (${gap.toFixed(1)})`);
+    }
+    // Exactly one tab is visually selected (the active category).
+    assert(tabs.filter(t => t.selected).length === 1, `exactly one tab selected @ ${w}x${h}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
 console.log('\n[Guards: reduced motion + sound off]');
 
 test('reducedMotion suppresses particle emission and does not throw', () => {
