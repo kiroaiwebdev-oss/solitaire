@@ -1,0 +1,45 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Complete rebuild of the core engine, game logic, and configuration files. This rewrites src/core/, src/game/, src/config/, and src/systems/ with premium quality: unlimited undo/redo stack, hint system, auto-complete with cascading animation, multiple difficulty levels (Easy/Medium/Hard/Expert), Draw 1 and Draw 3 modes, Vegas/Standard/None scoring, move history/replay system, enhanced particle system, and premium audio with more sound effects and ambient music generation.",
+  "status": "completed",
+  "steps": [
+    "Rewrite src/core/math.js - add more easing functions (elastic, bounce, spring), bezier curves, noise functions for particles, interpolation helpers",
+    "Rewrite src/core/loop.js - same pattern but add FPS tracking and performance monitoring",
+    "Rewrite src/core/input.js - add multi-touch support, double-tap detection, long-press detection, gesture recognition (swipe), keyboard shortcuts (Ctrl+Z undo, Ctrl+Y redo, H hint, N new game, A auto-complete, Escape pause), right-click/context menu",
+    "Rewrite src/core/render.js - add gradient helpers, shadow utilities, blur effects, clipping helpers, image cache, offscreen canvas pool, particle render batch",
+    "Rewrite src/core/audio.js - complete premium audio system: more synthesized sounds (achievement unlock, level up, streak, card shuffle variants, ambient pad, confetti pop, hint whoosh, auto-complete cascade), volume controls for SFX and music separately, ambient lo-fi music generation using oscillators/filters, haptic feedback via navigator.vibrate",
+    "Rewrite src/game/card.js - enhanced card rendering with shadows that change on drag (elevation effect), tilt based on drag direction, 3D flip animation with perspective, glow effects for hints, subtle texture on card face, premium suit symbols with better bezier curves",
+    "Rewrite src/game/deck.js - same functionality, ensure seeded deck works correctly",
+    "Rewrite src/game/tableau.js - add hint detection (find all valid moves), dynamic stack offset based on column height and screen space",
+    "Rewrite src/game/foundation.js - add fill progress tracking, suit watermark display data",
+    "Rewrite src/game/stock.js - same functionality for draw-1/draw-3, add card count tracking",
+    "Rewrite src/game/drag.js - add tilt effect based on drag velocity, valid drop zone detection with glow feedback, elastic snap-back with bounce on invalid drop, red flash on invalid",
+    "Rewrite src/game/game.js - MAJOR rewrite: unlimited undo/redo (full stack, not just 1 level), hint system that finds and returns valid moves, auto-complete with smooth cascading animation, move history log (every move recorded), replay system (store all moves for playback), multiple difficulty (Easy=draw1+untimed, Medium=draw1+timed, Hard=draw3+untimed, Expert=draw3+timed), scoring modes (Vegas=-52 start +5 per foundation, Standard=current, None=practice), win detection with flying cards + fireworks + confetti particles, auto-move on double-tap",
+    "Rewrite src/config/scoring.js - add Vegas scoring mode, standard scoring mode, no-score practice mode, time bonus calculations",
+    "Rewrite src/config/themes.js - expand to 10+ card back themes with more intricate programmatic patterns (celtic knot, geometric, mandala, gradient mesh, etc), table felt themes (green, blue, red, purple, dark, midnight), card face styles (classic, modern, minimal)",
+    "Rewrite src/config/achievements.js - expand to 25+ achievements with categories, progress tracking, rarity tiers (Common, Rare, Epic, Legendary)",
+    "Rewrite src/config/daily-seeds.js - same deterministic seed logic",
+    "Rewrite src/systems/progression.js - enhanced XP/level system with milestone rewards, level-up animations data, currency for unlocking themes",
+    "Rewrite src/systems/daily-challenge.js - add calendar view data (track which days completed), streak bonus multipliers, monthly challenge tracking",
+    "Rewrite src/systems/achievements.js - notification queue, progress bars for partial achievements, badge display data",
+    "Rewrite src/systems/save-manager.js - add game history storage, replay data, settings versioning, data migration support"
+  ],
+  "acceptance_criteria": [
+    "All source files in src/core/, src/game/, src/config/, src/systems/ are rewritten with premium features",
+    "Game logic supports unlimited undo/redo stack",
+    "Hint system can find and return all valid moves",
+    "Auto-complete cascades cards one at a time with timing",
+    "4 difficulty levels and 3 scoring modes implemented in game logic",
+    "Move history and replay data structures are in place",
+    "25+ achievement definitions exist",
+    "10+ card back themes with programmatic patterns exist",
+    "Audio system has 15+ distinct synthesized sounds plus ambient music generation",
+    "Running NODE_OPTIONS='' node tests/selftest.mjs passes (test file will be updated in later feature)"
+  ],
+  "verification": [
+    "Check that all src/core/, src/game/, src/config/, src/systems/ files exist and are syntactically valid JS modules by importing them in Node.js"
+  ],
+  "blocked_reason": null,
+  "findings": "All 20 source files rewritten successfully. All three test suites pass (selftest: 185 passed, domtest: 244 passed, sdk-probes: 198 passed). Build succeeds for all 5 platforms. Card.js uses a registerThemeRenderer pattern to avoid circular imports with themes.js (themes.js no longer imports from card.js). The GRAD3 array in math.js noise implementation needed ascii minus signs instead of unicode dashes. All modules are valid ES modules importable in Node.js v22 without browser globals at top level."
+}

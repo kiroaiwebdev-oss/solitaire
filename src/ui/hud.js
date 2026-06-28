@@ -1,20 +1,18 @@
 /**
- * In-game HUD rendered on canvas.
- * Score display, move counter, timer, undo/new game/menu buttons.
- * All interactive elements have hover/press states and audio feedback.
- * Responsive positioning for all screen sizes.
+ * Premium in-game HUD rendered on canvas.
+ * Neomorphism styled buttons, animated score counter, move counter,
+ * timer with pulsing low-time warning, XP bar, daily streak badge,
+ * score popups with physics, undo/redo/hint/menu/auto-complete buttons.
  */
 
 import { SCORING } from '../config/scoring.js';
 import { easeOutCubic, clamp } from '../core/math.js';
 
-/**
- * A canvas button with hover/press states.
- */
 class HudButton {
-  constructor(label, icon) {
+  constructor(label, icon, action) {
     this.label = label;
     this.icon = icon || '';
+    this.action = action || '';
     this.x = 0;
     this.y = 0;
     this.width = 0;
@@ -23,6 +21,8 @@ class HudButton {
     this.pressed = false;
     this.visible = true;
     this.alpha = 1;
+    this.scale = 1;
+    this.glowIntensity = 0;
   }
 
   containsPoint(px, py) {
@@ -43,13 +43,22 @@ class HudButton {
     ctx.save();
     ctx.globalAlpha = this.alpha;
 
-    // Background
-    let bgColor = 'rgba(0,0,0,0.4)';
+    // Neomorphism background
+    let bgColor = 'rgba(15,35,20,0.85)';
+    let borderColor = 'rgba(255,255,255,0.12)';
     if (this.pressed) {
-      bgColor = 'rgba(255,255,255,0.2)';
+      bgColor = 'rgba(212,175,55,0.3)';
+      borderColor = 'rgba(212,175,55,0.5)';
     } else if (this.hovered) {
-      bgColor = 'rgba(255,255,255,0.1)';
+      bgColor = 'rgba(20,50,30,0.9)';
+      borderColor = 'rgba(212,175,55,0.4)';
     }
+
+    // Outer shadow
+    ctx.shadowColor = 'rgba(0,0,0,0.4)';
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
 
     ctx.beginPath();
     ctx.moveTo(x + r, y);
@@ -65,14 +74,27 @@ class HudButton {
     ctx.fillStyle = bgColor;
     ctx.fill();
 
-    // Border
-    ctx.strokeStyle = this.hovered ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)';
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+
+    // Inner highlight
+    ctx.strokeStyle = borderColor;
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Text
+    // Glow effect
+    if (this.glowIntensity > 0) {
+      ctx.globalAlpha = this.glowIntensity * 0.3;
+      ctx.fillStyle = '#d4af37';
+      ctx.fill();
+      ctx.globalAlpha = this.alpha;
+    }
+
+    // Icon/text
     ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = this.hovered ? '#d4af37' : '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
@@ -86,9 +108,6 @@ class HudButton {
   }
 }
 
-/**
- * Floating score change animation.
- */
 class ScorePopup {
   constructor(value, x, y) {
     this.value = value;
@@ -98,6 +117,7 @@ class ScorePopup {
     this.time = 0;
     this.duration = 1.2;
     this.alive = true;
+    this.vx = (Math.random() - 0.5) * 20;
   }
 
   update(dt) {
@@ -107,19 +127,24 @@ class ScorePopup {
       return;
     }
     const t = this.time / this.duration;
-    this.y = this.startY - 40 * easeOutCubic(t);
+    this.y = this.startY - 50 * easeOutCubic(t);
+    this.x += this.vx * dt;
   }
 
   render(ctx, fontSize) {
     if (!this.alive) return;
     const t = this.time / this.duration;
     const alpha = 1 - t;
+    const scale = 1 + (1 - t) * 0.3;
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+    ctx.font = `bold ${Math.round(fontSize * scale)}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = this.value >= 0 ? '#44ff44' : '#ff4444';
+    ctx.fillStyle = this.value >= 0 ? '#44ff88' : '#ff5555';
+    // Shadow for readability
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 3;
     const prefix = this.value >= 0 ? '+' : '';
     ctx.fillText(`${prefix}${this.value}`, this.x, this.y);
     ctx.restore();
@@ -132,47 +157,68 @@ export class HUD {
     this.renderer = renderer;
 
     // Buttons
-    this.undoBtn = new HudButton('Undo', '\u21A9');
-    this.menuBtn = new HudButton('Menu', '\u2630');
-    this.newGameBtn = new HudButton('New', '\u2795');
-    this.autoCompleteBtn = new HudButton('Auto', '\u2714');
+    this.undoBtn = new HudButton('Undo', '\u21A9', 'undo');
+    this.redoBtn = new HudButton('Redo', '\u21AA', 'redo');
+    this.hintBtn = new HudButton('Hint', '\u2728', 'hint');
+    this.menuBtn = new HudButton('Menu', '\u2630', 'menu');
+    this.autoCompleteBtn = new HudButton('Auto', '\u2714', 'autoComplete');
     this.autoCompleteBtn.visible = false;
 
-    this.buttons = [this.undoBtn, this.menuBtn, this.newGameBtn, this.autoCompleteBtn];
+    this.buttons = [this.undoBtn, this.redoBtn, this.hintBtn, this.menuBtn, this.autoCompleteBtn];
 
-    // Score popups
+    // Score animation
+    this.displayScore = 0;
+    this.targetScore = 0;
     this.scorePopups = [];
     this.lastScore = 0;
 
-    // Pointer state for hover detection
+    // Pointer state
     this.pointerX = -1;
     this.pointerY = -1;
 
-    // Auto-complete button pulse
+    // Auto-complete pulse
     this.autoPulse = 0;
+
+    // Timer warning
+    this.timerPulse = 0;
+
+    // XP bar animation
+    this.displayXp = 0;
+
+    // Daily streak
+    this.streak = 0;
   }
 
-  /**
-   * Add a score popup animation at a position.
-   */
+  setStreak(streak) {
+    this.streak = streak;
+  }
+
+  setXpProgress(current, max, level) {
+    this.xpCurrent = current;
+    this.xpMax = max;
+    this.xpLevel = level;
+  }
+
   addScorePopup(value, x, y) {
     if (value === 0) return;
     this.scorePopups.push(new ScorePopup(value, x, y));
   }
 
-  /**
-   * Update hover state for pointer position.
-   */
   updatePointer(x, y) {
     this.pointerX = x;
     this.pointerY = y;
     for (const btn of this.buttons) {
       btn.hovered = btn.containsPoint(x, y);
+      if (btn.hovered) {
+        btn.glowIntensity = Math.min(btn.glowIntensity + 0.1, 1);
+      } else {
+        btn.glowIntensity = Math.max(btn.glowIntensity - 0.1, 0);
+      }
     }
   }
 
   update(dt) {
-    // Update score popups
+    // Score popups
     for (let i = this.scorePopups.length - 1; i >= 0; i--) {
       this.scorePopups[i].update(dt);
       if (!this.scorePopups[i].alive) {
@@ -180,19 +226,44 @@ export class HUD {
       }
     }
 
+    // Animated score counter
+    this.targetScore = this.game.score;
+    if (this.displayScore !== this.targetScore) {
+      const diff = this.targetScore - this.displayScore;
+      const step = Math.ceil(Math.abs(diff) * dt * 5);
+      if (Math.abs(diff) <= step) {
+        this.displayScore = this.targetScore;
+      } else {
+        this.displayScore += Math.sign(diff) * step;
+      }
+    }
+
     // Track score changes for popups
     if (this.game.score !== this.lastScore) {
       const diff = this.game.score - this.lastScore;
       const w = this.renderer.logicalWidth;
-      this.addScorePopup(diff, w * 0.15, 28);
+      this.addScorePopup(diff, w * 0.12, 32);
       this.lastScore = this.game.score;
     }
 
-    // Auto-complete button visibility
+    // Auto-complete button
     this.autoCompleteBtn.visible = this.game.canAutoComplete() && !this.game.autoCompleting;
     if (this.autoCompleteBtn.visible) {
-      this.autoPulse += dt * 2;
+      this.autoPulse += dt * 3;
       this.autoCompleteBtn.alpha = 0.7 + 0.3 * Math.sin(this.autoPulse);
+      this.autoCompleteBtn.glowIntensity = 0.5 + 0.5 * Math.sin(this.autoPulse);
+    }
+
+    // Undo/redo visibility
+    this.undoBtn.visible = this.game.canUndo ? this.game.canUndo() : (this.game.undoState !== null);
+    this.redoBtn.visible = this.game.canRedo ? this.game.canRedo() : false;
+
+    // Timer warning pulse
+    if (this.game.hardMode) {
+      const remaining = Math.max(0, this.game.hardModeTime - this.game.timer);
+      if (remaining < 60) {
+        this.timerPulse += dt * 4;
+      }
     }
   }
 
@@ -204,38 +275,51 @@ export class HUD {
     // Responsive sizing
     const isSmall = w < 500;
     const fontSize = isSmall ? 11 : 14;
-    const btnH = isSmall ? 26 : 32;
-    const btnW = isSmall ? 34 : 42;
-    const padding = isSmall ? 4 : 8;
+    const btnH = isSmall ? 28 : 34;
+    const btnW = isSmall ? 36 : 44;
+    const padding = isSmall ? 6 : 10;
     const topMargin = 6;
+    const barHeight = btnH + topMargin * 2 + 4;
 
-    // -- Top bar background --
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.fillRect(0, 0, w, btnH + topMargin * 2 + 2);
+    // Top bar with neomorphism
+    const gradient = ctx.createLinearGradient(0, 0, 0, barHeight);
+    gradient.addColorStop(0, 'rgba(10,26,15,0.92)');
+    gradient.addColorStop(1, 'rgba(5,15,8,0.88)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, w, barHeight);
 
-    // -- Score display --
+    // Bottom border glow
+    ctx.strokeStyle = 'rgba(212,175,55,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, barHeight);
+    ctx.lineTo(w, barHeight);
+    ctx.stroke();
+
+    // Score display (animated)
     ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#d4af37';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    const barCenterY = topMargin + btnH / 2 + 1;
-    ctx.fillText(`Score: ${this.game.score}`, padding + 2, barCenterY);
+    const barCenterY = topMargin + btnH / 2 + 2;
+    ctx.fillText(`${Math.round(this.displayScore)}`, padding + 2, barCenterY);
 
-    // -- Move counter --
-    const moveText = `Moves: ${this.game.moves}`;
-    const scoreWidth = ctx.measureText(`Score: ${this.game.score}`).width;
-    ctx.fillText(moveText, padding + scoreWidth + 16, barCenterY);
+    // Move counter
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = `${fontSize - 1}px system-ui, sans-serif`;
+    const scoreWidth = ctx.measureText(`${Math.round(this.displayScore)}`).width;
+    ctx.fillText(`${this.game.moves} moves`, padding + scoreWidth + 14, barCenterY);
 
-    // -- Timer --
+    // Timer
     let timerText;
     if (this.game.hardMode) {
       const remaining = Math.max(0, this.game.hardModeTime - this.game.timer);
       const mins = Math.floor(remaining / 60);
       const secs = Math.floor(remaining % 60);
       timerText = `${mins}:${secs.toString().padStart(2, '0')}`;
-      // Flash red when low time
       if (remaining < 60) {
-        ctx.fillStyle = remaining % 1 < 0.5 ? '#ff4444' : '#ffaa44';
+        const pulse = Math.sin(this.timerPulse);
+        ctx.fillStyle = pulse > 0 ? '#ff4444' : '#ff8844';
       } else {
         ctx.fillStyle = '#ffffff';
       }
@@ -243,12 +327,43 @@ export class HUD {
       const mins = Math.floor(this.game.timer / 60);
       const secs = Math.floor(this.game.timer % 60);
       timerText = `${mins}:${secs.toString().padStart(2, '0')}`;
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
     }
+    ctx.font = `${fontSize}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(timerText, w / 2, barCenterY);
 
-    // -- Buttons on right side --
+    // Daily streak badge
+    if (this.streak > 0) {
+      const streakX = w / 2 + 40;
+      ctx.font = `${fontSize - 2}px system-ui, sans-serif`;
+      ctx.fillStyle = '#ff6600';
+      ctx.textAlign = 'left';
+      ctx.fillText(`\uD83D\uDD25${this.streak}`, streakX, barCenterY);
+    }
+
+    // XP bar (small, below stats)
+    if (this.xpMax && this.xpMax > 0) {
+      const xpBarW = isSmall ? 60 : 80;
+      const xpBarH = 4;
+      const xpBarX = padding + 2;
+      const xpBarY = barHeight - xpBarH - 3;
+      const progress = clamp((this.xpCurrent || 0) / this.xpMax, 0, 1);
+
+      ctx.fillStyle = 'rgba(255,255,255,0.1)';
+      ctx.fillRect(xpBarX, xpBarY, xpBarW, xpBarH);
+      ctx.fillStyle = '#d4af37';
+      ctx.fillRect(xpBarX, xpBarY, xpBarW * progress, xpBarH);
+
+      if (this.xpLevel) {
+        ctx.font = `${fontSize - 3}px system-ui, sans-serif`;
+        ctx.fillStyle = 'rgba(212,175,55,0.7)';
+        ctx.textAlign = 'left';
+        ctx.fillText(`Lv${this.xpLevel}`, xpBarX + xpBarW + 4, xpBarY + 2);
+      }
+    }
+
+    // Buttons on right side
     let btnX = w - padding - btnW;
 
     // Menu button
@@ -259,12 +374,20 @@ export class HUD {
     this.menuBtn.render(ctx, fontSize);
     btnX -= btnW + 4;
 
-    // New game button
-    this.newGameBtn.x = btnX;
-    this.newGameBtn.y = topMargin;
-    this.newGameBtn.width = btnW;
-    this.newGameBtn.height = btnH;
-    this.newGameBtn.render(ctx, fontSize);
+    // Hint button
+    this.hintBtn.x = btnX;
+    this.hintBtn.y = topMargin;
+    this.hintBtn.width = btnW;
+    this.hintBtn.height = btnH;
+    this.hintBtn.render(ctx, fontSize);
+    btnX -= btnW + 4;
+
+    // Redo button
+    this.redoBtn.x = btnX;
+    this.redoBtn.y = topMargin;
+    this.redoBtn.width = btnW;
+    this.redoBtn.height = btnH;
+    this.redoBtn.render(ctx, fontSize);
     btnX -= btnW + 4;
 
     // Undo button
@@ -272,7 +395,6 @@ export class HUD {
     this.undoBtn.y = topMargin;
     this.undoBtn.width = btnW;
     this.undoBtn.height = btnH;
-    this.undoBtn.visible = this.game.undoState !== null;
     this.undoBtn.render(ctx, fontSize);
     btnX -= btnW + 4;
 
@@ -285,47 +407,27 @@ export class HUD {
       this.autoCompleteBtn.render(ctx, fontSize);
     }
 
-    // -- Score popups --
+    // Score popups
     for (const popup of this.scorePopups) {
       popup.render(ctx, fontSize + 2);
     }
   }
 
-  /**
-   * Handle click on HUD elements.
-   * @returns {string|false} action name or false if not handled
-   */
   handleClick(x, y) {
-    if (this.undoBtn.visible && this.undoBtn.containsPoint(x, y)) {
-      this.undoBtn.pressed = true;
-      setTimeout(() => { this.undoBtn.pressed = false; }, 100);
-      return 'undo';
-    }
-    if (this.menuBtn.containsPoint(x, y)) {
-      this.menuBtn.pressed = true;
-      setTimeout(() => { this.menuBtn.pressed = false; }, 100);
-      return 'menu';
-    }
-    if (this.newGameBtn.containsPoint(x, y)) {
-      this.newGameBtn.pressed = true;
-      setTimeout(() => { this.newGameBtn.pressed = false; }, 100);
-      return 'newGame';
-    }
-    if (this.autoCompleteBtn.visible && this.autoCompleteBtn.containsPoint(x, y)) {
-      this.autoCompleteBtn.pressed = true;
-      setTimeout(() => { this.autoCompleteBtn.pressed = false; }, 100);
-      return 'autoComplete';
+    for (const btn of this.buttons) {
+      if (btn.visible && btn.containsPoint(x, y)) {
+        btn.pressed = true;
+        setTimeout(() => { btn.pressed = false; }, 100);
+        return btn.action;
+      }
     }
     return false;
   }
 
-  /**
-   * Check if a point is within the HUD area (top bar).
-   */
   isInHudArea(x, y) {
     const w = this.renderer.logicalWidth;
     const isSmall = w < 500;
-    const btnH = isSmall ? 26 : 32;
-    return y < btnH + 14;
+    const btnH = isSmall ? 28 : 34;
+    return y < btnH + 16;
   }
 }

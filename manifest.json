@@ -1,0 +1,25 @@
+{
+  "name": "Premium Solitaire",
+  "short_name": "Solitaire",
+  "description": "Premium Klondike Solitaire card game",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#0a1a0f",
+  "background_color": "#0d2818",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%230d2818'/%3E%3Cpath d='M96 30 C96 30 50 75 50 95 C50 120 70 140 96 155 C122 140 142 120 142 95 C142 75 96 30 96 30Z' fill='%23d4af37'/%3E%3Crect x='88' y='140' width='16' height='25' fill='%23d4af37'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%230d2818'/%3E%3Cpath d='M256 60 C256 60 130 190 130 240 C130 310 185 360 256 400 C327 360 382 310 382 240 C382 190 256 60 256 60Z' fill='%23d4af37'/%3E%3Crect x='234' y='370' width='44' height='70' fill='%23d4af37'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

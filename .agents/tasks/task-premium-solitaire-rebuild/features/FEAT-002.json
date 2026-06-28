@@ -1,0 +1,45 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Complete rebuild of the UI layer (src/ui/), main app (src/main.js), HTML/CSS, and platform adapters. Premium neomorphism/glassmorphism UI with micro-animations, particle effects, responsive design for all devices, loading screen, smooth transitions, and all screens (main menu, mode select, settings with working controls, statistics dashboard, achievements, daily challenge calendar, pause, win celebration, game over). Also rebuild platform adapters and the build script.",
+  "status": "in_progress",
+  "steps": [
+    "Rewrite index.html - add manifest.json link, meta tags for PWA, theme-color, apple-mobile-web-app tags, preload hints, service worker registration script",
+    "Rewrite styles.css - complete neomorphism design system: CSS custom properties for dark/light/auto themes, glassmorphism panels with backdrop-filter, soft shadows and inner shadows, gradient overlays, responsive breakpoints (320px phone to 3440px ultrawide), landscape adjustments, safe-area-insets, dvh units, disabled pinch-to-zoom, disabled pull-to-refresh, no-scrollbar utilities, reduced-motion media query, high-contrast mode, transition classes for screen animations",
+    "Rewrite src/ui/hud.js - premium HUD with neomorphism buttons (undo, redo, hint, menu, auto-complete), animated score counter, move counter, timer with pulsing low-time warning, XP bar with level indicator, daily streak badge, score popups with physics, all buttons have hover/press/glow micro-animations",
+    "Rewrite src/ui/screens.js - MAJOR rewrite with all screens: (1) Loading screen with animated logo and progress bar, (2) Main menu with floating card animations and particle background, (3) Mode select (difficulty + draw mode + scoring mode), (4) Settings screen with WORKING controls: sound volume slider, music volume slider, animation speed selector, auto-complete toggle, hint frequency, card size preference, left-hand mode toggle, theme mode (dark/light/auto), reduced motion toggle, (5) Statistics dashboard with charts/graphs (games played, won, win%, best time, avg time, best score, streaks, move efficiency - rendered as canvas bar charts and progress rings), (6) Achievements gallery with locked/unlocked states and progress bars, (7) Daily challenge with calendar view showing completed days, (8) Pause screen, (9) Win celebration screen with stats, XP earned, achievements unlocked, next challenge info, (10) Game over screen with retry option. All screens have slide/fade/scale transitions between them.",
+    "Create src/ui/particles.js - particle system: sparkles on foundation completion, confetti on win, dust trail on card drag, floating ambient particles in background, fireworks burst, glow pulses. Each particle type has its own emitter config with lifetime, velocity, gravity, color, size, fade.",
+    "Create src/ui/animations.js - animation manager: screen transitions (slide, fade, scale, blur), button micro-animations (hover scale, press shrink, ripple effect), card cascade for win/auto-complete, score counter roll-up, achievement notification slide-in, level-up flash, streak fire animation",
+    "Rewrite src/main.js - rebuild App class: premium loading sequence, responsive layout engine that dynamically computes card sizes for any viewport, proper game state management, keyboard shortcut handling, double-tap auto-move to foundation, right-click context menu, orientation change handling, visibility API for pause/resume, beforeunload save, PWA install prompt handling, time-of-day adaptive theme, render pipeline with layered drawing (background > particles > cards > drag > HUD > overlays > notifications)",
+    "Rewrite src/platform/adapter.js - same base interface",
+    "Rewrite src/platform/standalone.js - same standalone adapter with enhanced fallback overlay",
+    "Rewrite src/platform/crazygames.js - proper CrazyGames SDK v3 integration stubs",
+    "Rewrite src/platform/gamedistribution.js - proper GameDistribution SDK integration stubs",
+    "Rewrite src/platform/y8.js - proper Y8 SDK integration stubs",
+    "Rewrite src/platform/playhop.js - proper PlayHop/Playgama SDK integration stubs",
+    "Rewrite src/platform/sdkUtil.js - shared SDK utilities (safe call wrapper, global wait, audio mute helper, fallback overlay, GDPR consent stub, adblock detection)",
+    "Rewrite src/platform/index.js - same adapter detection logic",
+    "Create manifest.json at project root - PWA manifest with app name, icons (data URIs), theme color, display standalone, orientation any",
+    "Create sw.js at project root - service worker for offline caching (cache all game files on install, serve from cache, update on new version)",
+    "Rewrite tools/build.mjs - update file list to include new files (manifest.json, sw.js, particles.js, animations.js), generate per-platform builds, same zip logic",
+    "Rewrite DEPLOY.md - update deployment instructions for new features"
+  ],
+  "acceptance_criteria": [
+    "index.html has PWA meta tags, manifest link, service worker registration",
+    "styles.css has complete neomorphism design system with responsive breakpoints from 320px to 3440px",
+    "All screen types render correctly (main menu, mode select, settings, statistics, achievements, daily calendar, pause, win, game over, loading)",
+    "Settings controls are all functional with real effects (sound volume, music volume, animation speed, auto-complete toggle, hints, card size, left-hand mode, theme mode, reduced motion)",
+    "Particle system creates visual effects for win/foundation/drag",
+    "Platform adapters all instantiate correctly and have required methods",
+    "manifest.json and sw.js exist for PWA support",
+    "Build script includes all new files and generates valid platform zips",
+    "Running NODE_OPTIONS='' node tools/build.mjs succeeds"
+  ],
+  "verification": [
+    "Run NODE_OPTIONS='' node tools/build.mjs and verify it completes without errors",
+    "Verify all source files are syntactically valid by attempting to import core modules in Node.js",
+    "Check that manifest.json is valid JSON with required PWA fields"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

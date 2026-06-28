@@ -1,0 +1,7 @@
+{
+  "task_id": "task-premium-solitaire-rebuild",
+  "task_description": "Complete rebuild of the Klondike Solitaire game to premium studio quality with neomorphism UI, comprehensive features (unlimited undo/redo, hints, multiple difficulties, scoring modes, achievements, daily challenges, particle effects, ambient music), fully responsive design, platform adapters, PWA support, and comprehensive tests.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}
