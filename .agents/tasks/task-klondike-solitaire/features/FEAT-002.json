@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "UI layer, screens, HUD, scoring, timer, and win animations. This adds the complete user interface with menus, overlays, in-game HUD, scoring system, undo button, timer for Hard mode, and the win celebration with flying/cascading cards.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Create src/config/scoring.js - point values: waste-to-tableau 5pts, waste-to-foundation 10pts, tableau-to-foundation 10pts, turn card face up 5pts, foundation-to-tableau -15pts, undo penalty -20pts",
     "Create src/ui/hud.js - in-game HUD rendered on canvas: score display, move counter, timer (for Hard mode countdown), undo button, new game button, menu button. All interactive elements have hover/press states and audio feedback. Responsive positioning for all screen sizes.",

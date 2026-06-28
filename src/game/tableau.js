@@ -81,7 +81,7 @@ export class Tableau {
 
   /**
    * Remove cards from cardIndex onward from a column.
-   * Reveals the new top card if needed.
+   * Reveals the new top card if needed (with optional flip animation).
    * @returns {import('./card.js').Card[]} removed cards
    */
   removeSequence(colIndex, cardIndex) {
@@ -89,7 +89,16 @@ export class Tableau {
     const removed = col.splice(cardIndex);
     // Reveal top card
     if (col.length > 0 && !col[col.length - 1].faceUp) {
-      col[col.length - 1].faceUp = true;
+      const topCard = col[col.length - 1];
+      topCard.faceUp = true;
+      // Trigger visual flip animation if available
+      if (topCard.animateFlip) {
+        topCard.flipping = true;
+        topCard.flipTime = 0;
+        topCard.flipDuration = 0.3;
+        topCard.flipTargetFaceUp = true;
+        topCard.flipScaleX = 0;
+      }
     }
     return removed;
   }

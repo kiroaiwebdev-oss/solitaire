@@ -13,6 +13,12 @@ import { HUD } from './ui/hud.js';
 import { Screens } from './ui/screens.js';
 import { getAdapter } from './platform/index.js';
 import { SaveManager } from './systems/save-manager.js';
+import { SCORING } from './config/scoring.js';
+import { THEMES, DEFAULT_THEME } from './config/themes.js';
+
+const SAVE_KEY_STATS = 'solitaire_stats';
+const SAVE_KEY_SETTINGS = 'solitaire_settings';
+const SAVE_KEY_COACH = 'solitaire_coach_seen';
 
 class App {
   constructor() {
@@ -24,13 +30,17 @@ class App {
     this.adapter = getAdapter();
     this.saveManager = new SaveManager(this.adapter);
 
+    // Load settings
+    this.settings = this._loadSettings();
+
     this.game = new Game({
-      drawCount: 1,
+      drawCount: this.settings.drawMode,
       audio: this.audio
     });
 
     this.hud = new HUD(this.game, this.renderer);
     this.screens = new Screens(this.renderer, this.audio);
+    this.screens.setSettings(this.settings);
 
     this.layout = {
       cardWidth: 70,
@@ -45,15 +55,77 @@ class App {
     };
 
     this.audioInitialized = false;
-    this.game.onWin = () => { this.screens.show('win'); };
+    this.gameActive = false;
+    this.showingWinAnim = false;
 
-    this._initGame();
+    // Stats
+    this.stats = this._loadStats();
+    this.screens.setStats(this.stats);
+
+    // Game callbacks
+    this.game.onWin = (score, moves, time) => {
+      this.showingWinAnim = true;
+      // Delay showing the win screen so animation plays first
+      setTimeout(() => {
+        this.screens.show('win', { score, moves, time });
+        this._recordWin(time);
+      }, 3000);
+    };
+
+    this.game.onLose = () => {
+      this.screens.show('gameOver', { score: this.game.score });
+      this._recordLoss();
+    };
+
+    this._initApp();
   }
 
-  _initGame() {
-    this.game.deal();
-    this._computeLayout();
-    this._positionCards();
+  _loadSettings() {
+    const saved = this.saveManager.load(SAVE_KEY_SETTINGS);
+    return {
+      soundEnabled: saved ? saved.soundEnabled !== false : true,
+      cardTheme: saved ? (saved.cardTheme || DEFAULT_THEME) : DEFAULT_THEME,
+      drawMode: saved ? (saved.drawMode || 1) : 1
+    };
+  }
+
+  _saveSettings() {
+    this.saveManager.save(SAVE_KEY_SETTINGS, this.settings);
+  }
+
+  _loadStats() {
+    const saved = this.saveManager.load(SAVE_KEY_STATS);
+    return saved || { played: 0, won: 0, bestTime: null, currentStreak: 0, longestStreak: 0 };
+  }
+
+  _saveStats() {
+    this.saveManager.save(SAVE_KEY_STATS, this.stats);
+  }
+
+  _recordWin(time) {
+    this.stats.played++;
+    this.stats.won++;
+    this.stats.currentStreak++;
+    if (this.stats.currentStreak > this.stats.longestStreak) {
+      this.stats.longestStreak = this.stats.currentStreak;
+    }
+    if (this.stats.bestTime === null || time < this.stats.bestTime) {
+      this.stats.bestTime = time;
+    }
+    this._saveStats();
+    this.screens.setStats(this.stats);
+  }
+
+  _recordLoss() {
+    this.stats.played++;
+    this.stats.currentStreak = 0;
+    this._saveStats();
+    this.screens.setStats(this.stats);
+  }
+
+  _initApp() {
+    // Show main menu on start
+    this.screens.show('mainMenu');
 
     this.input.on('pointerdown', (coords) => this._onPointerDown(coords));
     this.input.on('pointermove', (coords) => this._onPointerMove(coords));
@@ -63,6 +135,41 @@ class App {
       (dt) => this._update(dt),
       (dt) => this._render(dt)
     );
+  }
+
+  _startNewGame(hardMode) {
+    this.game = new Game({
+      drawCount: hardMode ? 3 : this.settings.drawMode,
+      audio: this.audio,
+      hardMode,
+      hardModeTime: SCORING.HARD_MODE_TIME
+    });
+    this.game.onWin = (score, moves, time) => {
+      this.showingWinAnim = true;
+      setTimeout(() => {
+        this.screens.show('win', { score, moves, time });
+        this._recordWin(time);
+      }, 3000);
+    };
+    this.game.onLose = () => {
+      this.screens.show('gameOver', { score: this.game.score });
+      this._recordLoss();
+    };
+    this.game.deal();
+    this.hud = new HUD(this.game, this.renderer);
+    this.hud.lastScore = 0;
+    this._computeLayout();
+    this._positionCards();
+    this.gameActive = true;
+    this.showingWinAnim = false;
+    this.screens.hide();
+
+    // Coach marks on first run
+    const coachSeen = this.saveManager.load(SAVE_KEY_COACH);
+    if (!coachSeen) {
+      this.screens.showCoachMarks();
+      this.saveManager.save(SAVE_KEY_COACH, true);
+    }
   }
 
   _computeLayout() {
@@ -77,7 +184,8 @@ class App {
     this.layout.marginX = (w - (this.layout.cardWidth * 7 + 10 * 6)) / 2;
     if (this.layout.marginX < 5) this.layout.marginX = 5;
 
-    this.layout.topRowY = 50;
+    // Push top row down to accommodate HUD bar
+    this.layout.topRowY = 55;
     this.layout.tableauY = this.layout.topRowY + this.layout.cardHeight + 20;
     this.layout.stackOffsetY = Math.max(this.layout.cardHeight * 0.2, 15);
     this.layout.stackOffsetFaceDown = Math.max(this.layout.cardHeight * 0.06, 4);
@@ -134,25 +242,43 @@ class App {
       this.audio.init();
       this.audioInitialized = true;
     }
+    this.audio.setMuted(!this.settings.soundEnabled);
   }
 
   _onPointerDown(coords) {
     this._ensureAudio();
 
+    // Update hover states
+    this.hud.updatePointer(coords.x, coords.y);
+    this.screens.updatePointer(coords.x, coords.y);
+
+    // Screen overlay takes priority
     if (this.screens.isActive()) {
       const action = this.screens.handleClick(coords.x, coords.y);
-      if (action === 'newGame') {
-        this.screens.hide();
-        this.game.deal();
-        this._computeLayout();
-        this._positionCards();
-      }
+      this._handleScreenAction(action);
       return;
     }
 
-    if (this.game.state !== GAME_STATES.PLAYING) return;
+    // Coach marks
+    if (this.screens.showCoach && !this.screens.coachDismissed) {
+      this.screens.handleClick(coords.x, coords.y);
+      return;
+    }
+
+    if (!this.gameActive || this.game.state !== GAME_STATES.PLAYING) return;
 
     const { x, y } = coords;
+
+    // Check HUD first
+    if (this.hud.isInHudArea(x, y)) {
+      const hudAction = this.hud.handleClick(x, y);
+      if (hudAction) {
+        this.audio.play('buttonClick');
+        this._handleHudAction(hudAction);
+        return;
+      }
+    }
+
     const layout = this.layout;
 
     // Check stock click
@@ -188,19 +314,16 @@ class App {
     // Check tableau columns (pick up card or sequence)
     for (let col = 6; col >= 0; col--) {
       const column = this.game.tableau.columns[col];
-      // Check from bottom card to top (last drawn is on top visually)
       for (let i = column.length - 1; i >= 0; i--) {
         const card = column[i];
         if (!card.faceUp) continue;
 
-        // Hit test
         const cardBottom = (i < column.length - 1) ?
           card.y + (card.faceUp ? layout.stackOffsetY : layout.stackOffsetFaceDown) :
           card.y + layout.cardHeight;
 
         if (x >= card.x && x <= card.x + layout.cardWidth &&
             y >= card.y && y <= cardBottom) {
-          // Check if we can pick this sequence
           if (this.game.tableau.canPickSequence(col, i)) {
             const seq = this.game.tableau.getSequence(col, i);
             this.game.drag.start(seq, x, y, { type: 'tableau', index: col, cardIndex: i });
@@ -212,6 +335,9 @@ class App {
   }
 
   _onPointerMove(coords) {
+    this.hud.updatePointer(coords.x, coords.y);
+    this.screens.updatePointer(coords.x, coords.y);
+
     if (this.game.drag.active) {
       this.game.drag.move(coords.x, coords.y, this.layout.cardHeight);
     }
@@ -270,7 +396,6 @@ class App {
 
     // If not moved, snap back
     if (!moved) {
-      // Return cards to source
       this._returnCards(source, cards);
       if (this.audio) this.audio.play('error');
     }
@@ -279,7 +404,7 @@ class App {
 
     // Check for auto-complete
     if (this.game.canAutoComplete() && !this.game.autoCompleting) {
-      this.game.startAutoComplete();
+      // Show the button, don't auto-start
     }
   }
 
@@ -298,13 +423,27 @@ class App {
     // Place at target
     if (target.type === 'foundation') {
       this.game.foundation.placeCard(target.index, cards[0]);
-      this.game.score += 10;
-      if (source.type === 'waste') this.game.score += 5;
+      if (source.type === 'waste') {
+        this.game.score += SCORING.WASTE_TO_FOUNDATION;
+      } else if (source.type === 'tableau') {
+        this.game.score += SCORING.TABLEAU_TO_FOUNDATION;
+      }
       this.audio.play('cardPlace');
       this.game._checkWin();
     } else if (target.type === 'tableau') {
       this.game.tableau.placeSequence(target.index, cards);
-      if (source.type === 'waste') this.game.score += 5;
+      if (source.type === 'waste') {
+        this.game.score += SCORING.WASTE_TO_TABLEAU;
+      } else if (source.type === 'foundation') {
+        this.game.score = Math.max(0, this.game.score + SCORING.FOUNDATION_TO_TABLEAU);
+      }
+      // Check if we revealed a card
+      if (source.type === 'tableau') {
+        const col = this.game.tableau.columns[source.index];
+        if (col.length > 0 && col[col.length - 1].faceUp) {
+          this.game.score += SCORING.REVEAL_CARD;
+        }
+      }
       this.audio.play('cardPlace');
     }
 
@@ -312,19 +451,123 @@ class App {
   }
 
   _returnCards(source, cards) {
-    // Cards are still logically in their source (drag.end doesn't remove them from data model)
-    // We just need to animate them back - positions will be recalculated in _positionCards
     for (const card of cards) {
       card.dragging = false;
     }
   }
 
+  _handleScreenAction(action) {
+    if (!action) return;
+    switch (action) {
+      case 'modeSelect':
+        this.screens.show('modeSelect');
+        break;
+      case 'continue':
+        this.screens.hide();
+        break;
+      case 'settings':
+        this.screens.show('settings');
+        break;
+      case 'statistics':
+        this.screens.show('statistics');
+        break;
+      case 'startEasy':
+        this._startNewGame(false);
+        break;
+      case 'startHard':
+        this._startNewGame(true);
+        break;
+      case 'toggleSound':
+        this.settings.soundEnabled = !this.settings.soundEnabled;
+        this.audio.setMuted(!this.settings.soundEnabled);
+        this._saveSettings();
+        this.screens.setSettings(this.settings);
+        this.screens.show('settings'); // refresh buttons
+        break;
+      case 'cycleTheme': {
+        const themeKeys = Object.keys(THEMES);
+        const idx = themeKeys.indexOf(this.settings.cardTheme);
+        this.settings.cardTheme = themeKeys[(idx + 1) % themeKeys.length];
+        this._saveSettings();
+        this.screens.setSettings(this.settings);
+        this.screens.show('settings');
+        break;
+      }
+      case 'cycleDrawMode':
+        this.settings.drawMode = this.settings.drawMode === 1 ? 3 : 1;
+        this._saveSettings();
+        this.screens.setSettings(this.settings);
+        this.screens.show('settings');
+        break;
+      case 'back':
+        this.screens.show('mainMenu');
+        break;
+      case 'resume':
+        this.game.state = GAME_STATES.PLAYING;
+        this.screens.hide();
+        break;
+      case 'restart':
+        this._startNewGame(this.game.hardMode);
+        break;
+      case 'quit':
+        this.gameActive = false;
+        this.showingWinAnim = false;
+        this.screens.show('mainMenu');
+        break;
+      case 'playAgain':
+        this._startNewGame(this.game.hardMode);
+        break;
+      case 'mainMenu':
+        this.screens.show('mainMenu');
+        break;
+    }
+  }
+
+  _handleHudAction(action) {
+    switch (action) {
+      case 'undo':
+        this.game.undo();
+        this._positionCards();
+        break;
+      case 'menu':
+        this.game.state = GAME_STATES.PAUSED;
+        this.screens.show('pause');
+        break;
+      case 'newGame':
+        this.screens.show('modeSelect');
+        break;
+      case 'autoComplete':
+        this.game.startAutoComplete();
+        break;
+    }
+  }
+
   _update(dt) {
+    this.screens.update(dt);
+
+    if (!this.gameActive) {
+      this.input.endFrame();
+      return;
+    }
+
     this.game.update(dt);
     this.hud.update(dt);
 
+    // Win animation physics
+    if (this.showingWinAnim) {
+      this.game.updateWinAnimation(dt,
+        this.renderer.logicalWidth, this.renderer.logicalHeight,
+        this.layout.cardWidth, this.layout.cardHeight);
+    }
+
     if (this.game.autoCompleting) {
       this._positionCards();
+    }
+
+    // Detect game over from hard mode (timer)
+    if (this.game.state === GAME_STATES.LOST && !this.screens.isActive()) {
+      this.screens.show('gameOver', { score: this.game.score });
+      this._recordLoss();
     }
 
     this.input.endFrame();
@@ -340,6 +583,20 @@ class App {
     // Draw felt texture (subtle)
     this._drawFelt(ctx);
 
+    if (!this.gameActive) {
+      // Screens overlay (main menu)
+      this.screens.render();
+      return;
+    }
+
+    // Win animation rendering
+    if (this.showingWinAnim) {
+      this._renderWinAnimation(ctx);
+      this.hud.render();
+      if (this.screens.isActive()) this.screens.render();
+      return;
+    }
+
     // Draw foundation placeholders
     for (let p = 0; p < 4; p++) {
       const fx = this._getFoundationX(p);
@@ -347,7 +604,6 @@ class App {
       this.renderer.drawRoundedRect(fx, fy, layout.cardWidth, layout.cardHeight,
         4, 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.2)', 1.5);
 
-      // Draw suit hint
       const suits = ['spades', 'hearts', 'diamonds', 'clubs'];
       ctx.font = `${layout.cardWidth * 0.4}px system-ui`;
       ctx.fillStyle = 'rgba(255,255,255,0.15)';
@@ -374,10 +630,8 @@ class App {
     const stockX = layout.marginX;
     const stockY = layout.topRowY;
     if (this.game.stock.stock.length > 0) {
-      // Draw stock as face-down card
       this.renderer.drawRoundedRect(stockX, stockY, layout.cardWidth, layout.cardHeight,
         4, '#1a3a6b', '#0d2040', 1);
-      // Card count
       ctx.font = `bold ${layout.cardWidth * 0.2}px system-ui`;
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
@@ -385,7 +639,6 @@ class App {
       ctx.fillText(String(this.game.stock.stock.length),
         stockX + layout.cardWidth / 2, stockY + layout.cardHeight / 2);
     } else {
-      // Empty stock placeholder (click to recycle)
       this.renderer.drawRoundedRect(stockX, stockY, layout.cardWidth, layout.cardHeight,
         4, 'rgba(255,255,255,0.03)', 'rgba(255,255,255,0.15)', 1.5);
       ctx.font = `${layout.cardWidth * 0.4}px system-ui`;
@@ -399,7 +652,6 @@ class App {
     const wasteX = layout.marginX + layout.cardWidth + 15;
     const visibleWaste = this.game.stock.visibleWaste();
     if (visibleWaste.length === 0) {
-      // Empty waste placeholder
       this.renderer.drawRoundedRect(wasteX, stockY, layout.cardWidth, layout.cardHeight,
         4, 'rgba(255,255,255,0.02)', 'rgba(255,255,255,0.08)', 1);
     }
@@ -419,7 +671,6 @@ class App {
       const column = this.game.tableau.columns[col];
 
       if (column.length === 0) {
-        // Empty column placeholder
         this.renderer.drawRoundedRect(colX, layout.tableauY, layout.cardWidth, layout.cardHeight,
           4, 'rgba(255,255,255,0.03)', 'rgba(255,255,255,0.1)', 1);
       }
@@ -452,8 +703,29 @@ class App {
     }
   }
 
+  _renderWinAnimation(ctx) {
+    const layout = this.layout;
+    for (const data of this.game.winAnimationCards) {
+      if (!data.launched) continue;
+      data.card.x = data.x;
+      data.card.y = data.y;
+      data.card.faceUp = true;
+      data.card.render(ctx, layout.cardWidth, layout.cardHeight);
+
+      // Simple particle trail
+      if (data.bounces < 3) {
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = '#ffd700';
+        ctx.beginPath();
+        ctx.arc(data.x + layout.cardWidth / 2, data.y + layout.cardHeight, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+
   _drawFelt(ctx) {
-    // Subtle felt texture pattern
     const w = this.renderer.logicalWidth;
     const h = this.renderer.logicalHeight;
     ctx.fillStyle = 'rgba(0,0,0,0.02)';

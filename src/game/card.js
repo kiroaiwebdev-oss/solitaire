@@ -39,6 +39,12 @@ export class Card {
     this.startY = 0;
     this.zIndex = 0;
     this.dragging = false;
+    // Flip animation
+    this.flipping = false;
+    this.flipTime = 0;
+    this.flipDuration = 0.3;
+    this.flipTargetFaceUp = false;
+    this.flipScaleX = 1;
   }
 
   get color() {
@@ -66,17 +72,49 @@ export class Card {
     this.animDuration = duration;
   }
 
+  /**
+   * Animate a card flip. ScaleX goes 1 -> 0 -> 1, face changes at midpoint.
+   */
+  animateFlip(faceUp, duration = 0.3) {
+    this.flipping = true;
+    this.flipTime = 0;
+    this.flipDuration = duration;
+    this.flipTargetFaceUp = faceUp;
+    this.flipScaleX = 1;
+  }
+
   update(dt) {
-    if (!this.animating) return;
-    this.animTime += dt;
-    const t = Math.min(this.animTime / this.animDuration, 1);
-    const eased = easeOutCubic(t);
-    this.x = lerp(this.startX, this.targetX, eased);
-    this.y = lerp(this.startY, this.targetY, eased);
-    if (t >= 1) {
-      this.animating = false;
-      this.x = this.targetX;
-      this.y = this.targetY;
+    if (this.animating) {
+      this.animTime += dt;
+      const t = Math.min(this.animTime / this.animDuration, 1);
+      const eased = easeOutCubic(t);
+      this.x = lerp(this.startX, this.targetX, eased);
+      this.y = lerp(this.startY, this.targetY, eased);
+      if (t >= 1) {
+        this.animating = false;
+        this.x = this.targetX;
+        this.y = this.targetY;
+      }
+    }
+    if (this.flipping) {
+      this.flipTime += dt;
+      const t = Math.min(this.flipTime / this.flipDuration, 1);
+      if (t < 0.5) {
+        // First half: scale from 1 to 0
+        this.flipScaleX = 1 - t * 2;
+      } else {
+        // Midpoint: flip the face
+        if (this.faceUp !== this.flipTargetFaceUp) {
+          this.faceUp = this.flipTargetFaceUp;
+        }
+        // Second half: scale from 0 to 1
+        this.flipScaleX = (t - 0.5) * 2;
+      }
+      if (t >= 1) {
+        this.flipping = false;
+        this.flipScaleX = 1;
+        this.faceUp = this.flipTargetFaceUp;
+      }
     }
   }
 
@@ -89,10 +127,25 @@ export class Card {
     this.width = cardWidth;
     this.height = cardHeight;
 
-    if (this.faceUp) {
-      this._renderFace(ctx, cardWidth, cardHeight);
+    // Apply flip scale transform
+    if (this.flipping && this.flipScaleX < 1) {
+      ctx.save();
+      const cx = this.x + cardWidth / 2;
+      ctx.translate(cx, 0);
+      ctx.scale(this.flipScaleX, 1);
+      ctx.translate(-cx, 0);
+      if (this.faceUp) {
+        this._renderFace(ctx, cardWidth, cardHeight);
+      } else {
+        this._renderBack(ctx, cardWidth, cardHeight);
+      }
+      ctx.restore();
     } else {
-      this._renderBack(ctx, cardWidth, cardHeight);
+      if (this.faceUp) {
+        this._renderFace(ctx, cardWidth, cardHeight);
+      } else {
+        this._renderBack(ctx, cardWidth, cardHeight);
+      }
     }
   }
 

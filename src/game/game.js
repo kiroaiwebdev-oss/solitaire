@@ -9,6 +9,7 @@ import { Foundation } from './foundation.js';
 import { Stock } from './stock.js';
 import { DragSystem } from './drag.js';
 import { SUITS, RANKS } from './card.js';
+import { SCORING } from '../config/scoring.js';
 
 export const GAME_STATES = {
   MENU: 'menu',
@@ -143,7 +144,7 @@ export class Game {
       }
     }
 
-    this.score = state.score;
+    this.score = Math.max(0, state.score + SCORING.UNDO_PENALTY);
     this.moves = state.moves;
     this.undoState = null;
 
@@ -254,8 +255,59 @@ export class Game {
     if (this.foundation.isComplete()) {
       this.state = GAME_STATES.WON;
       this.winAnimTime = 0;
+      this._initWinAnimation();
       if (this.audio) this.audio.play('win');
       if (this.onWin) this.onWin(this.score, this.moves, this.timer);
+    }
+  }
+
+  _initWinAnimation() {
+    this.winAnimationCards = [];
+    // Create flying card data from foundation piles
+    for (let p = 0; p < 4; p++) {
+      const pile = this.foundation.piles[p];
+      for (let i = pile.length - 1; i >= 0; i--) {
+        const card = pile[i];
+        this.winAnimationCards.push({
+          card,
+          x: card.x || 0,
+          y: card.y || 0,
+          vx: (Math.random() - 0.5) * 400,
+          vy: -(Math.random() * 200 + 100),
+          gravity: 600,
+          delay: (pile.length - 1 - i) * 0.08 + p * 0.3,
+          launched: false,
+          bounces: 0
+        });
+      }
+    }
+  }
+
+  updateWinAnimation(dt, screenWidth, screenHeight, cardWidth, cardHeight) {
+    if (this.state !== GAME_STATES.WON) return;
+    this.winAnimTime += dt;
+
+    for (const data of this.winAnimationCards) {
+      if (this.winAnimTime < data.delay) continue;
+      if (!data.launched) {
+        data.launched = true;
+        data.x = data.card.x || 0;
+        data.y = data.card.y || 0;
+      }
+      data.vy += data.gravity * dt;
+      data.x += data.vx * dt;
+      data.y += data.vy * dt;
+
+      // Bounce off bottom
+      if (data.y + cardHeight > screenHeight) {
+        data.y = screenHeight - cardHeight;
+        data.vy *= -0.6;
+        data.vx *= 0.9;
+        data.bounces++;
+      }
+      // Bounce off sides
+      if (data.x < 0) { data.x = 0; data.vx *= -0.8; }
+      if (data.x + cardWidth > screenWidth) { data.x = screenWidth - cardWidth; data.vx *= -0.8; }
     }
   }
 
@@ -334,11 +386,6 @@ export class Game {
     // Update card animations
     for (const card of this.allCards) {
       card.update(dt);
-    }
-
-    // Win animation
-    if (this.state === GAME_STATES.WON) {
-      this.winAnimTime += dt;
     }
   }
 
